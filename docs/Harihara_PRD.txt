@@ -1,0 +1,81 @@
+--- PAGE 1 ---
+Product Requirements Document (PRD)
+Harihara Constructions   Home Affordability Calculator & Property Recommender Tool
+Version: 2.0
+Date: November 2025
+1. Executive Summary
+Purpose:
+Develop a web-based, bank-accurate home affordability calculator and property recommender for Harihara
+Constructions.
+Vision:
+Provide an interactive, 60-second experience that calculates purchasing power using FOIR logic.
+Objectives:
+- Increase inbound lead quality
+- Provide bank-standard affordability estimates
+- Drive WhatsApp-based site visits
+KPIs:
+- Lead Capture Rate: >40%
+- Completion Time: <60 sec
+- Property Matches: 3 12
+- CTR: >10%
+2. User Journey
+1. Start ! Lead Capture
+2. Income Details
+3. Loan Preferences
+4. Result Display + Property Matches
+5. WhatsApp CTA
+3. Functional Requirements
+
+
+--- PAGE 2 ---
+Step 1:
+- Name, Phone, Email, Consent
+Step 2:
+- Employment Type
+- Income
+- Existing EMIs
+- Age
+- Co-applicant (conditional)
+Step 3:
+- Tenure Slider (15 30 yrs)
+- Down Payment Slider (20 50%)
+Step 4:
+- Affordability Summary
+- EMI Table
+- Recommended Properties
+- WhatsApp CTA
+4. Calculation Logic
+Surplus = Income   Existing EMIs
+Base FOIR:
+- Salaried: 0.50
+- Self-employed: 0.45
+Adjustments:
++0.10 if young co-applicant
++0.05 if high total income
+Max FOIR = 0.60
+Loan = EMI × (1 - (1+r)^(-n)) / r
+
+
+--- PAGE 3 ---
+Affordable Price = min(Price_by_DownPayment, Price_by_LTV)
+5. Property Matching
+Show 3 12 units "d affordable price.
+6. UI/UX
+Mobile-first
+Step progress indicator
+Sticky CTA buttons
+7. Technical Stack
+Frontend: React/Next + Tailwind
+Backend: Supabase / Firebase
+Deployment: Vercel / Netlify
+8. Validation Rules
+Phone format, income limits, EMI "d 80% income, Age + tenure "d 70.
+9. Security
+HTTPS, encrypted PII, input sanitization.
+10. Roadmap
+Week 1: UI + Calculation
+Week 2: Backend
+Week 3: QA & Deployment
+End of PRD
+
+
