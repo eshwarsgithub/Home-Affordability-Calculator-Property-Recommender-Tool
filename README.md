@@ -1,29 +1,35 @@
-## Harihara Home Affordability Calculator & Property Recommender
+# Tycoon Estates — Real-Estate Command Center
 
-This Next.js 14 + Tailwind CSS app implements the interactive four-step flow from the Harihara Constructions PRD. The experience captures leads, calculates bank-aligned affordability using FOIR logic, and recommends eligible projects with WhatsApp follow-through.
+High-fidelity, production-ready Next.js 16 experience for ultra-high-net-worth real-estate discovery, dashboards, and admin management. The UI implements the design brief: luxurious tone, predictive search, map-sync listings, ROI calculators, and accessibility-first microinteractions.
 
-### Core Features
+## Highlights
+- **Responsive canvases** for desktop ≥1440px, laptop 1280px, tablet 768/1024px, and mobile 360/412px.
+- **Predictive search + filters** with saved searches, skeleton fallbacks, and map pin sync (listings page).
+- **Property detail stack** with hero gallery, video toggle placeholder, ROI/mortgage calculator, schedule modal, and trust microcopy.
+- **Agent/portfolio hub** showcasing advisors, certifications, testimonials, and CTA-ready workflows.
+- **Owner dashboard & admin** views with metrics, timelines, holdings table, and listing management toggles.
+- **Accessibility & performance guardrails** baked into components (`:focus-visible`, aria-labels, lazy loading, GPU-only animations).
 
-- **Lead capture:** Name, phone, email and consent with validation aligned to PRD requirements.
-- **Eligibility engine:** FOIR-based surplus evaluation with co-applicant and high income adjustments, capped at 60%.
-- **Loan preferences:** Tenure slider (15-30 yrs), down-payment slider (20-50%), and adjustable rate.
-- **Result hub:** Affordability summary, EMI sensitivity table, curated property matches (3-12 items) and sticky WhatsApp CTA.
+## App Structure
+| Path | Description |
+| --- | --- |
+| `/` | Hero, predictive search, highlights, dashboard preview, testimonials, CTA strip |
+| `/listings` | Filter drawer, predictive saved searches, map-sync results, slow-network simulation |
+| `/properties/[id]` | Gallery, ROI calculator, certification & trust stack, modal schedule |
+| `/agents` | Advisor selector with success stats and testimonials |
+| `/dashboard` | Portfolio metrics, liquidity timeline, holdings filter chips |
+| `/contact` | Accessible lead capture form + trust badges |
+| `/admin` | Listing management table with publish/draft toggle |
+| `/style-guide` | Brand tokens, typography, accessibility/performance reminders |
 
-### Local Development
-
+## Getting Started
 ```bash
 npm install
 npm run dev
 ```
-
-Visit [http://localhost:3000](http://localhost:3000) to use the tool. UI updates live thanks to Next.js fast refresh.
-
-### Environment Variables
-
-Create `.env.local` based on the Appwrite project:
-
+Visit `http://localhost:3000` and explore each route. Update `.env.local` to connect Appwrite for `/api/leads` + `/api/properties`:
 ```
-APPWRITE_ENDPOINT=https://nyc.cloud.appwrite.io/v1
+APPWRITE_ENDPOINT=...
 APPWRITE_PROJECT_ID=...
 APPWRITE_API_KEY=...
 APPWRITE_DATABASE_ID=...
@@ -31,28 +37,25 @@ APPWRITE_LEADS_COLLECTION_ID=...
 APPWRITE_PROPERTIES_COLLECTION_ID=...
 ```
 
-The `scripts/setup-appwrite-schema.ts` helper can bootstrap the database/collection schema once the variables are in place:
+## Design System & Assets
+- Global tokens live in `src/app/globals.css`, exported separately via `handoff/css-variables.css`.
+- Component primitives: `src/components/ui/primitives.tsx`.
+- Icons (outline 24dp grid): `public/icons/`.
+- Developer handoff docs: `docs/*.md`, `handoff/assets.json`, `docs/style-guide.pdf`, `docs/animation-specs.md`.
 
-```bash
-npx tsx scripts/setup-appwrite-schema.ts
-```
+## Performance & Accessibility
+- Lighthouse mobile ≥90, CLS <0.1, FCP <1.5s, TBT <200ms.
+- Animations limited to transform/opacity (80–120ms hover, 150–300ms transitions, 400–500ms reveals).
+- `ScheduleModal` enforces focus trapping + ESC close.
+- Map pins and filters expose descriptive aria labels; forms leverage semantic labels + validation hints.
 
-### Project Structure Highlights
+## Testing & QA
+- `npm run lint` for static analysis.
+- Use `npx @axe-core/cli http://localhost:3000` for WCAG 2.1 AA coverage.
+- Switch Chrome dev tools to “Slow 3G” to verify skeleton + fallback states (Listings).
 
-- `src/app/page.tsx` – multi-step form, validation, presentation and CTA surface.
-- `src/lib/calculations.ts` – FOIR helpers, EMI math, and affordability utilities.
-- `src/data/properties.ts` – fallback inventory (live data now loads from Appwrite via `/api/properties`).
-- `src/lib/server/appwrite.ts` – server SDK wrapper shared by App Router endpoints.
-- `src/app/api/leads/route.ts` – secure lead capture endpoint posting to Appwrite.
-- `src/app/api/properties/route.ts` – fetches property catalogue from Appwrite for the recommender.
-
-### Next Steps
-
-1. Seed production-ready property docs (images, pricing tiers) into Appwrite and tighten read filters.
-2. Replace placeholder property imagery and enrich meta-information.
-3. Add analytics + A/B testing hooks for the WhatsApp CTA and completion rate KPIs.
-4. Harden form validations with server-side duplication checks before launch.
-
-### Deployment
-
-The app is Vercel-ready out of the box. Configure environment variables for backend services before shipping to production.
+## Next Steps
+1. Connect real Appwrite dataset + enable ISR for `/properties`.
+2. Wire analytics via `src/lib/analytics.ts` events (step_started, property_clicked, etc.).
+3. Import actual Figma deliverable using the brief in `docs/developer-handoff.md` and map components 1:1.
+4. Run Lighthouse CI in your pipeline to guarantee ≥90 mobile score before deploy.

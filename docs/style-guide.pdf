@@ -1,0 +1,50 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 763 >>
+stream
+BT
+/F1 18 Tf
+1 0 0 1 50 800 Tm
+(Tycoon Estates Style Guide) Tj
+/F1 12 Tf
+1 0 0 1 50 770 Tm
+(Tone: ultra-professional, luxurious, trustworthy.) Tj
+1 0 0 1 50 745 Tm
+(Palette: Charcoal #050B16, Slate #1F2633, Mist #F5F6F8, Royal #0A5DFF, Gold #C89B3C.) Tj
+1 0 0 1 50 720 Tm
+(Typography: Cormorant Garamond display, Inter UI, tracking 40 for microcopy.) Tj
+1 0 0 1 50 695 Tm
+(Animations: hover 80-120ms, content transitions 150-300ms, reveals 400-500ms.) Tj
+1 0 0 1 50 670 Tm
+(Accessibility: WCAG 2.1 AA, focus halo 2px Royal, aria-live for async states.) Tj
+1 0 0 1 50 645 Tm
+(Performance: Lighthouse mobile >= 90, FCP < 1.5s, CLS < 0.1, GPU transforms only.) Tj
+1 0 0 1 50 620 Tm
+(Responsive: breakpoints 360, 412, 768, 1024, 1280, sticky CTA cross-device.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001054 00000 n 
+trailer << /Root 1 0 R /Size 6 >>
+startxref
+1124
+%%EOF
