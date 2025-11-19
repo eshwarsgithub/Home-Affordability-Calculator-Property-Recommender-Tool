@@ -1,939 +1,271 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { properties as fallbackProperties } from "@/data/properties";
-import type { Property } from "@/data/properties";
-import {
-  AffordabilityBreakdown,
-  calculateAffordability,
-  buildEmiTable,
-  formatCurrency,
-  matchProperties,
-} from "@/lib/calculations";
-import type { PropertyMatch } from "@/lib/calculations";
+import { useMemo, useState } from "react";
+import { properties } from "@/data/properties";
+import { metrics } from "@/data/dashboard";
+import { PropertyCard } from "@/components/properties/property-card";
+import { MapPanel } from "@/components/properties/map-panel";
+import { Button, Badge, SectionHeading, StatCard } from "@/components/ui/primitives";
+import { ScheduleModal } from "@/components/modals/schedule-modal";
+import { Testimonials } from "@/components/testimonials";
 
-const whatsappNumber = "917676767676";
-const phoneRegex = /^[6-9]\d{9}$/;
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const heroStats = [
+  { label: "Assets Under Advisory", value: "₹48,200 Cr" },
+  { label: "Average IRR", value: "19.2%" },
+  { label: "Jurisdictions", value: "17 markets" },
+];
 
-const tenureBounds = { min: 15, max: 30 };
-const downPaymentBounds = { min: 0.2, max: 0.5 };
+const savedSearches = ["Bengaluru prime", "Managed villa", "Off-plan yield"];
 
-const stepLabels = ["Lead details", "Income profile", "Loan structure", "Results"] as const;
-type Step = 0 | 1 | 2 | 3;
+export default function HomePage() {
+  const [query, setQuery] = useState("");
+  const [selectedPropertyId, setSelectedPropertyId] = useState(properties[0]?.id ?? null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleTarget, setScheduleTarget] = useState<string | undefined>();
+  const [showFallback, setShowFallback] = useState(false);
 
-interface LeadDetails {
-  name: string;
-  phone: string;
-  email: string;
-  consent: boolean;
-}
+  const suggestions = useMemo(() => {
+    if (!query.trim()) return properties.slice(0, 4);
+    return properties
+      .filter((property) =>
+        [property.name, property.location, property.configuration, property.highlights.join(" ")]
+          .join(" ")
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+      )
+      .slice(0, 5);
+  }, [query]);
 
-interface IncomeDetails {
-  employmentType: "salaried" | "self-employed";
-  monthlyIncome: number;
-  existingEmis: number;
-  age: number;
-  hasCoApplicant: boolean;
-  coApplicantIncome: number;
-  coApplicantAge: number;
-}
+  const filteredProperties = useMemo(() => {
+    if (!query.trim()) return properties;
+    return properties.filter((property) =>
+      [property.name, property.location, property.configuration, property.highlights.join(" ")]
+        .join(" ")
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+    );
+  }, [query]);
 
-interface LoanPreferences {
-  tenureYears: number;
-  downPaymentPercent: number;
-  interestRate: number;
-}
-
-const createInitialLead = (): LeadDetails => ({
-  name: "",
-  phone: "",
-  email: "",
-  consent: false,
-});
-
-const createInitialIncome = (): IncomeDetails => ({
-  employmentType: "salaried",
-  monthlyIncome: 85000,
-  existingEmis: 0,
-  age: 30,
-  hasCoApplicant: false,
-  coApplicantIncome: 0,
-  coApplicantAge: 28,
-});
-
-const createInitialLoan = (): LoanPreferences => ({
-  tenureYears: 20,
-  downPaymentPercent: 0.25,
-  interestRate: 8.5,
-});
-
-const clampTenure = (value: number) => Math.min(tenureBounds.max, Math.max(tenureBounds.min, Math.round(value)));
-const clampDownPayment = (value: number) => {
-  const clamped = Math.min(downPaymentBounds.max, Math.max(downPaymentBounds.min, value));
-  return Number(clamped.toFixed(2));
-};
-
-const tenureVariants = (selected: number) => {
-  const variants = new Set([15, 20, 25, 30, selected]);
-  return Array.from(variants).sort((a, b) => a - b);
-};
-
-const getWhatsappLink = (
-  lead: LeadDetails,
-  summary: AffordabilityBreakdown,
-  spotlightProperty?: PropertyMatch<Property>,
-) => {
-  const intro = lead.name ? `Hi, I'm ${lead.name}` : "Hi";
-  const propertyLine = spotlightProperty
-    ? ` I'm particularly interested in ${spotlightProperty.property.name} at ${formatCurrency(spotlightProperty.property.price)}.`
-    : "";
-  const message = `${intro}. I just completed the Harihara affordability check. Eligible loan ${formatCurrency(
-    summary.eligibleLoanAmount,
-  )} and target budget ${formatCurrency(summary.affordablePrice)}.${propertyLine} Could we schedule a site visit?`;
-  return `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-};
-
-const mapDocumentToProperty = (doc: unknown): Property | null => {
-  if (!doc || typeof doc !== "object") return null;
-  const record = doc as Record<string, unknown> & { $id?: string; id?: string };
-  if (typeof record.name !== "string" || typeof record.location !== "string") return null;
-  if (typeof record.price !== "number") return null;
-
-  const highlights = Array.isArray(record.highlights)
-    ? (record.highlights as unknown[]).filter((item): item is string => typeof item === "string")
-    : [];
-
-  const generatedId = (() => {
-    if (typeof record.$id === "string") return record.$id;
-    if (typeof record.id === "string") return record.id;
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
-    }
-    return Math.random().toString(36).slice(2);
-  })();
-
-  return {
-    id: generatedId,
-    name: record.name,
-    location: record.location,
-    configuration: typeof record.configuration === "string" ? record.configuration : "",
-    price: record.price,
-    carpetArea: typeof record.carpetArea === "string" ? record.carpetArea : "",
-    possession: typeof record.possession === "string" ? record.possession : "",
-    highlights: highlights.length > 0 ? highlights : [],
-    imageUrl: typeof record.imageUrl === "string" ? record.imageUrl : "",
-    whatsappNumber: typeof record.whatsappNumber === "string" ? record.whatsappNumber : whatsappNumber,
-    detailsUrl: typeof record.detailsUrl === "string" ? record.detailsUrl : "",
-  };
-};
-
-interface ValidationResult {
-  summary: string[];
-  fields: Partial<Record<string, string>>;
-}
-
-const emptyValidation: ValidationResult = { summary: [], fields: {} };
-
-const makeErrorList = (
-  step: Step,
-  lead: LeadDetails,
-  income: IncomeDetails,
-  loan: LoanPreferences,
-): ValidationResult => {
-  const summary: string[] = [];
-  const fields: ValidationResult["fields"] = {};
-  const totalIncome = income.monthlyIncome + (income.hasCoApplicant ? income.coApplicantIncome : 0);
-
-  if (step === 0) {
-    if (!lead.name.trim()) {
-      const message = "Please enter the buyer name.";
-      summary.push(message);
-      fields.name = message;
-    }
-    if (!phoneRegex.test(lead.phone)) {
-      const message = "Enter a 10 digit Indian phone number starting with 6-9.";
-      summary.push(message);
-      fields.phone = message;
-    }
-    if (!emailRegex.test(lead.email)) {
-      const message = "Enter a valid email address.";
-      summary.push(message);
-      fields.email = message;
-    }
-    if (!lead.consent) {
-      const message = "Consent is required to proceed.";
-      summary.push(message);
-      fields.consent = message;
-    }
-  }
-
-  if (step === 1) {
-    if (income.monthlyIncome < 15000) {
-      const message = "Monthly income must be at least ₹15,000.";
-      summary.push(message);
-      fields.monthlyIncome = message;
-    }
-    if (income.existingEmis < 0) {
-      const message = "Existing EMIs cannot be negative.";
-      summary.push(message);
-      fields.existingEmis = message;
-    }
-    if (income.age < 23 || income.age > 60) {
-      const message = "Primary applicant age must be between 23 and 60.";
-      summary.push(message);
-      fields.age = message;
-    }
-    if (income.existingEmis > totalIncome * 0.8) {
-      const message = "Existing EMIs should not exceed 80% of combined income.";
-      summary.push(message);
-      fields.existingEmis = message;
-    }
-    if (income.hasCoApplicant) {
-      if (income.coApplicantIncome <= 0) {
-        const message = "Add co-applicant income or remove the co-applicant.";
-        summary.push(message);
-        fields.coApplicantIncome = message;
-      }
-      if (income.coApplicantAge < 21 || income.coApplicantAge > 60) {
-        const message = "Co-applicant age must be between 21 and 60.";
-        summary.push(message);
-        fields.coApplicantAge = message;
-      }
-    }
-  }
-
-  if (step === 2) {
-    if (loan.tenureYears + income.age > 70) {
-      const message = "Age plus tenure should not exceed 70 years.";
-      summary.push(message);
-      fields.tenureYears = message;
-    }
-    if (loan.interestRate <= 0 || loan.interestRate > 15) {
-      const message = "Set a realistic annual interest rate (0.1% - 15%).";
-      summary.push(message);
-      fields.interestRate = message;
-    }
-  }
-
-  return { summary, fields };
-};
-
-export default function Home() {
-  const [step, setStep] = useState<Step>(0);
-  const [lead, setLead] = useState<LeadDetails>(() => createInitialLead());
-  const [income, setIncome] = useState<IncomeDetails>(() => createInitialIncome());
-  const [loan, setLoan] = useState<LoanPreferences>(() => createInitialLoan());
-  const [errors, setErrors] = useState<ValidationResult>(emptyValidation);
-  const [propertyList, setPropertyList] = useState<Property[]>(fallbackProperties);
-  const [leadSynced, setLeadSynced] = useState(false);
-  const [leadSaving, setLeadSaving] = useState(false);
-  const [leadSyncError, setLeadSyncError] = useState<string | null>(null);
-
-  const prefersReducedMotion = useReducedMotion();
-
-  const resetFlow = () => {
-    setLead(createInitialLead());
-    setIncome(createInitialIncome());
-    setLoan(createInitialLoan());
-    setErrors(emptyValidation);
-    setLeadSynced(false);
-    setLeadSaving(false);
-    setLeadSyncError(null);
-    setStep(0);
-  };
-
-  const markLeadDirty = () => {
-    if (leadSynced) {
-      setLeadSynced(false);
-    }
-    if (leadSyncError) {
-      setLeadSyncError(null);
-    }
-  };
-
-  const calcInput = useMemo(() => ({
-    primaryIncome: income.monthlyIncome,
-    coApplicantIncome: income.hasCoApplicant ? income.coApplicantIncome : 0,
-    existingEmis: income.existingEmis,
-    employmentType: income.employmentType,
-    hasYoungCoApplicant: income.hasCoApplicant && income.coApplicantAge <= 35,
-    tenureYears: loan.tenureYears,
-    downPaymentPercent: loan.downPaymentPercent,
-    interestRate: loan.interestRate,
-  }), [income, loan]);
-
-  const summary = useMemo<AffordabilityBreakdown>(() => calculateAffordability(calcInput), [calcInput]);
-  const propertyMatches = useMemo(
-    () => matchProperties(propertyList, summary.affordablePrice, 9),
-    [propertyList, summary.affordablePrice],
-  );
-
-  const spotlightProperty = propertyMatches[0];
-
-  useEffect(() => {
-    const fetchProperties = async () => {
-      try {
-        const response = await fetch("/api/properties", { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`Status ${response.status}`);
-        }
-        const payload = await response.json();
-        if (Array.isArray(payload.properties)) {
-          const mapped = payload.properties
-            .map(mapDocumentToProperty)
-            .filter((property: Property | null): property is Property => property !== null);
-          if (mapped.length > 0) {
-            setPropertyList(mapped);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load properties from Appwrite", error);
-      }
-    };
-
-    fetchProperties().catch((error) => console.error(error));
-  }, []);
-
-  useEffect(() => {
-    if (step !== 3 || leadSynced || leadSaving) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const syncLead = async () => {
-      try {
-        setLeadSaving(true);
-        const response = await fetch("/api/leads", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            lead: {
-              name: lead.name.trim(),
-              phone: lead.phone,
-              email: lead.email,
-              consent: lead.consent,
-            },
-            summary: {
-              eligibleLoanAmount: summary.eligibleLoanAmount,
-              affordablePrice: summary.affordablePrice,
-              maxEligibleEmi: summary.maxEligibleEmi,
-              foirApplied: summary.foirApplied,
-            },
-            loan: {
-              tenureYears: loan.tenureYears,
-              downPaymentPercent: loan.downPaymentPercent,
-              interestRate: loan.interestRate,
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Lead sync failed with status ${response.status}`);
-        }
-
-        if (!cancelled) {
-          setLeadSynced(true);
-          setLeadSyncError(null);
-        }
-      } catch (error) {
-        console.error("Lead sync failed", error);
-        if (!cancelled) {
-          setLeadSyncError("Could not sync lead to CRM. Please try again later.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLeadSaving(false);
-        }
-      }
-    };
-
-    syncLead().catch((error) => console.error(error));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    step,
-    leadSynced,
-    leadSaving,
-    lead.name,
-    lead.phone,
-    lead.email,
-    lead.consent,
-    loan.tenureYears,
-    loan.downPaymentPercent,
-    loan.interestRate,
-    summary.eligibleLoanAmount,
-    summary.affordablePrice,
-    summary.maxEligibleEmi,
-    summary.foirApplied,
-  ]);
-
-  const emiRows = useMemo(
-    () => buildEmiTable(summary.eligibleLoanAmount, loan.interestRate, tenureVariants(loan.tenureYears)),
-    [summary.eligibleLoanAmount, loan.interestRate, loan.tenureYears],
-  );
-
-  const handleNext = () => {
-    const stepErrors = makeErrorList(step, lead, income, loan);
-    setErrors(stepErrors);
-    if (stepErrors.summary.length === 0 && step < 3) {
-      setStep((prev) => {
-        const nextStep = (prev + 1) as Step;
-        if (nextStep >= 3) {
-          setLeadSynced(false);
-        }
-        return nextStep;
-      });
-    }
-  };
-
-  const handleBack = () => {
-    setErrors(emptyValidation);
-    setStep((prev) => {
-      const nextStep = Math.max(0, prev - 1) as Step;
-      if (nextStep < 3) {
-        setLeadSynced(false);
-      }
-      return nextStep;
-    });
-  };
-
-  const handleExit = () => {
-    resetFlow();
-    if (typeof window !== "undefined") {
-      window.location.href = "/";
-    }
+  const handleBook = (propertyName: string) => {
+    setScheduleTarget(propertyName);
+    setScheduleOpen(true);
   };
 
   return (
-    <div className="min-h-screen bg-slate-950/3">
-      <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-10 px-4 pb-24 pt-10 sm:px-8 lg:px-12">
-        <header className="flex flex-col gap-2">
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">Harihara Constructions</p>
-          <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Home Affordability Calculator</h1>
-          <p className="max-w-3xl text-base text-slate-600">
-            Complete the guided four-step journey to receive a bank-aligned purchase budget and instantly view curated Harihara properties that fit your eligibility. The flow is optimized to finish in under a minute.
+    <>
+      <section className="page-shell mt-16 grid gap-10 lg:grid-cols-[1.1fr,0.9fr]">
+        <div className="glass-panel p-10 space-y-6">
+          <Badge>Private Briefing</Badge>
+          <h1 className="font-serif text-[clamp(2.8rem,4vw,4.5rem)] leading-tight">
+            Command every asset decision with a single, discreet interface.
+          </h1>
+          <p className="text-lg text-white/70">
+            Tycoon Estates orchestrates discovery, diligence, and owner dashboards for global family offices and real-estate tycoons.
           </p>
-        </header>
-
-        <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-            <ol className="flex flex-wrap gap-4 text-sm font-medium text-slate-500">
-              {stepLabels.map((label, index) => {
-                const isActive = index === step;
-                const isCompleted = index < step;
-                return (
-                  <li key={label} className={`flex items-center gap-2 ${isActive ? "text-blue-700" : isCompleted ? "text-emerald-600" : "text-slate-400"}`}>
-                    <span className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs ${isActive ? "border-blue-700 bg-blue-50" : isCompleted ? "border-emerald-600 bg-emerald-50" : "border-slate-300 bg-white"}`}>
-                      {index + 1}
-                    </span>
-                    {label}
-                    {index < stepLabels.length - 1 && (
-                      <span className="hidden sm:inline" aria-hidden>
-                        {">"}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-
-          <div className="px-6 py-8">
-            {errors.summary.length > 0 && (
-              <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-semibold">Please review and update:</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5">
-                  {errors.summary.map((error) => (
-                    <li key={error}>{error}</li>
+          <div className="rounded-[32px] border border-white/10 bg-white/5 p-6">
+            <label className="text-xs uppercase tracking-[0.4em] text-white/60">Predictive search</label>
+            <div className="mt-3 space-y-3">
+              <div className="relative">
+                <input
+                  aria-label="Search properties"
+                  className="w-full rounded-full border border-white/10 bg-[#050b16] px-5 py-4 text-base text-white"
+                  placeholder="City, asset type, keyword"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs uppercase tracking-[0.3em] text-white/50">
+                  CMD+K
+                </div>
+              </div>
+              {query && suggestions.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
+                  No matches yet. Try reducing filters or view the full listings grid.
+                </div>
+              ) : (
+                <ul className="rounded-2xl border border-white/5 bg-black/30">
+                  {suggestions.map((suggestion) => (
+                    <li key={suggestion.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-white/80 hover:bg-white/10"
+                        onClick={() => {
+                          setQuery(`${suggestion.name}`);
+                          setSelectedPropertyId(suggestion.id);
+                        }}
+                      >
+                        <span>
+                          {suggestion.name}
+                          <span className="ml-2 text-white/50">{suggestion.location}</span>
+                        </span>
+                        <span className="text-white">₹{(suggestion.price / 1_00_00_000).toFixed(2)} Cr</span>
+                      </button>
+                    </li>
                   ))}
                 </ul>
-              </div>
-            )}
-
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={step}
-                initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -16 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: "easeOut" }}
-              >
-                {step === 0 && (
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="name">Primary applicant name</label>
-                      <input
-                        id="name"
-                        type="text"
-                        aria-invalid={Boolean(errors.fields.name)}
-                        aria-describedby={errors.fields.name ? "error-name" : undefined}
-                        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 ${errors.fields.name ? "border-rose-400" : "border-slate-200"}`}
-                        value={lead.name}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, name: event.target.value }));
-                        }}
-                        placeholder="e.g. Harihara Kumar"
-                      />
-                      {errors.fields.name && (
-                        <p id="error-name" className="mt-1 text-xs text-rose-600">
-                          {errors.fields.name}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="phone">Mobile number</label>
-                      <input
-                        id="phone"
-                        type="tel"
-                        inputMode="numeric"
-                        aria-invalid={Boolean(errors.fields.phone)}
-                        aria-describedby={errors.fields.phone ? "error-phone" : undefined}
-                        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 ${errors.fields.phone ? "border-rose-400" : "border-slate-200"}`}
-                        value={lead.phone}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, phone: event.target.value.replace(/[^0-9]/g, "") }));
-                        }}
-                        placeholder="9876543210"
-                      />
-                      {errors.fields.phone && (
-                        <p id="error-phone" className="mt-1 text-xs text-rose-600">
-                          {errors.fields.phone}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="email">Work email</label>
-                      <input
-                        id="email"
-                        type="email"
-                        aria-invalid={Boolean(errors.fields.email)}
-                        aria-describedby={errors.fields.email ? "error-email" : undefined}
-                        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 ${errors.fields.email ? "border-rose-400" : "border-slate-200"}`}
-                        value={lead.email}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, email: event.target.value }));
-                        }}
-                        placeholder="you@company.com"
-                      />
-                      {errors.fields.email && (
-                        <p id="error-email" className="mt-1 text-xs text-rose-600">
-                          {errors.fields.email}
-                        </p>
-                      )}
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                      <p className="mb-2 font-semibold text-slate-700">60-second experience</p>
-                      <p>We use your details to assign a relationship manager and send the affordability snapshot.</p>
-                    </div>
-                    <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={lead.consent}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, consent: event.target.checked }));
-                        }}
-                        className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>I consent to Harihara Constructions contacting me via phone, email, or WhatsApp for project information.</span>
-                    </label>
-                  </div>
-                )}
-
-                {step === 1 && (
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-700">Employment type</label>
-                      <div className="flex gap-3">
-                        {["salaried", "self-employed"].map((type) => (
-                          <button
-                            key={type}
-                            type="button"
-                            className={`flex-1 rounded-xl border px-4 py-3 text-sm font-medium capitalize transition ${income.employmentType === type ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
-                            onClick={() => {
-                              markLeadDirty();
-                              setIncome((prev) => ({ ...prev, employmentType: type as IncomeDetails["employmentType"] }));
-                            }}
-                          >
-                            {type.replace("-", " ")}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="monthlyIncome">Monthly take-home (₹)</label>
-                      <input
-                        id="monthlyIncome"
-                        type="number"
-                        min={0}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        value={income.monthlyIncome}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({ ...prev, monthlyIncome: Number(event.target.value) }));
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="existingEmis">Existing monthly EMIs (₹)</label>
-                      <input
-                        id="existingEmis"
-                        type="number"
-                        min={0}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        value={income.existingEmis}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({ ...prev, existingEmis: Number(event.target.value) }));
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="age">Applicant age</label>
-                      <input
-                        id="age"
-                        type="number"
-                        min={18}
-                        max={65}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        value={income.age}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({ ...prev, age: Number(event.target.value) }));
-                        }}
-                      />
-                    </div>
-
-                    <label className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={income.hasCoApplicant}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({
-                            ...prev,
-                            hasCoApplicant: event.target.checked,
-                            coApplicantIncome: event.target.checked ? prev.coApplicantIncome || 60000 : 0,
-                          }));
-                        }}
-                        className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      Add a co-applicant (boosts FOIR if under 35)
-                    </label>
-
-                    {income.hasCoApplicant && (
-                      <div className="sm:col-span-2 grid gap-6 sm:grid-cols-2">
-                        <div>
-                          <label className="text-sm font-medium text-slate-700" htmlFor="coIncome">Co-applicant monthly income (₹)</label>
-                          <input
-                            id="coIncome"
-                            type="number"
-                            min={0}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                            value={income.coApplicantIncome}
-                            onChange={(event) => {
-                              markLeadDirty();
-                              setIncome((prev) => ({ ...prev, coApplicantIncome: Number(event.target.value) }));
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-slate-700" htmlFor="coAge">Co-applicant age</label>
-                          <input
-                            id="coAge"
-                            type="number"
-                            min={21}
-                            max={60}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                            value={income.coApplicantAge}
-                            onChange={(event) => {
-                              markLeadDirty();
-                              setIncome((prev) => ({ ...prev, coApplicantAge: Number(event.target.value) }));
-                            }}
-                          />
-                          <p className="mt-1 text-xs text-slate-500">Young co-applicants (≤ 35 years) unlock a FOIR boost.</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {step === 2 && (
-                  <div className="grid gap-8 sm:grid-cols-2">
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="tenure">Desired tenure (years)</label>
-                      <input
-                        id="tenure"
-                        type="range"
-                        min={tenureBounds.min}
-                        max={tenureBounds.max}
-                        step={1}
-                        value={loan.tenureYears}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLoan((prev) => ({ ...prev, tenureYears: clampTenure(Number(event.target.value)) }));
-                        }}
-                        className="mt-2 w-full"
-                      />
-                      <div className="mt-2 flex justify-between text-xs uppercase tracking-wide text-slate-500">
-                        <span>{tenureBounds.min} yrs</span>
-                        <span className="text-sm font-semibold text-blue-600">{loan.tenureYears} yrs</span>
-                        <span>{tenureBounds.max} yrs</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="downPayment">Down payment</label>
-                      <input
-                        id="downPayment"
-                        type="range"
-                        min={downPaymentBounds.min}
-                        max={downPaymentBounds.max}
-                        step={0.05}
-                        value={loan.downPaymentPercent}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLoan((prev) => ({ ...prev, downPaymentPercent: clampDownPayment(Number(event.target.value)) }));
-                        }}
-                        className="mt-2 w-full"
-                      />
-                      <div className="mt-2 flex justify-between text-xs uppercase tracking-wide text-slate-500">
-                        <span>20%</span>
-                        <span className="text-sm font-semibold text-blue-600">{Math.round(loan.downPaymentPercent * 100)}%</span>
-                        <span>50%</span>
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-sm font-medium text-slate-700" htmlFor="interestRate">Expected interest rate (p.a)</label>
-                      <div className="mt-2 flex items-center gap-3">
-                        <input
-                          id="interestRate"
-                          type="number"
-                          min={5}
-                          max={15}
-                          step={0.1}
-                          className="w-28 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                          value={loan.interestRate}
-                          onChange={(event) => {
-                            markLeadDirty();
-                            setLoan((prev) => ({ ...prev, interestRate: Number(event.target.value) }));
-                          }}
-                        />
-                        <p className="text-sm text-slate-500">Most banks currently quote 8.4% - 9.1%.</p>
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
-                      <p className="font-semibold">FOIR primer</p>
-                      <p className="mt-1">Fixed Obligation to Income Ratio determines the portion of surplus income that can be used for EMIs. Harihara aligns with partner banks for accurate pre-qualification.</p>
-                    </div>
-                  </div>
-                )}
-
-                {step === 3 && (
-                  <div className="space-y-8">
-                    {(leadSaving || leadSyncError) && (
-                      <div className={`rounded-xl border p-4 text-sm ${leadSyncError ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                        {leadSyncError ?? "Syncing your affordability snapshot with the Harihara CRM..."}
-                      </div>
-                    )}
-
-                    <div className="grid gap-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 sm:grid-cols-2">
-                      <div>
-                        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Affordability summary</h2>
-                        <div className="mt-4 space-y-3 text-sm">
-                          <p className="flex justify-between">
-                            <span>Total monthly income</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.totalIncome)}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Eligible FOIR</span>
-                            <span className="font-semibold text-slate-900">{(summary.foirApplied * 100).toFixed(0)}%</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Max EMI capacity</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.maxEligibleEmi)}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Loan eligibility (@ {loan.interestRate.toFixed(2)}%)</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.eligibleLoanAmount)}</span>
-                          </p>
-                          <p className="flex justify-between text-base font-semibold text-blue-700">
-                            <span>Target purchase budget</span>
-                            <span>{formatCurrency(summary.affordablePrice)}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Indicative down payment</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.downPaymentAmount)}</span>
-                          </p>
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-white/60 bg-white p-4 shadow-sm">
-                        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">EMI scenarios</h3>
-                        <div className="mt-3 max-h-64 overflow-y-auto">
-                          <table className="min-w-full text-left text-xs text-slate-600">
-                            <thead className="sticky top-0 bg-white text-slate-500">
-                              <tr>
-                                <th className="px-2 py-1">Tenure</th>
-                                <th className="px-2 py-1">Rate</th>
-                                <th className="px-2 py-1">Monthly EMI</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {emiRows.map((row) => (
-                                <tr key={`${row.tenureYears}-${row.rate}`} className="odd:bg-slate-50">
-                                  <td className="px-2 py-1 font-medium text-slate-800">{row.tenureYears} yrs</td>
-                                  <td className="px-2 py-1">{row.rate.toFixed(2)}%</td>
-                                  <td className="px-2 py-1 font-semibold text-slate-900">{formatCurrency(row.emi)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <p className="mt-3 text-xs text-slate-500">Fine-tune rate and tenure in Step 3 to re-run the scenarios.</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-semibold text-slate-900">Recommended properties</h2>
-                        <span className="text-sm text-slate-500">{propertyMatches.length} matches</span>
-                      </div>
-                      <p className="mt-1 text-sm text-slate-600">Projects within the affordability envelope based on current assumptions. Save or request a virtual walkthrough instantly.</p>
-
-                      <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                        {propertyMatches.map(({ property, fitLabel, ctaMessage }) => {
-                          const badgeClass =
-                            fitLabel === "Fits budget"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : fitLabel === "Stretch"
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-slate-200 text-slate-700";
-                          const isSpotlight = spotlightProperty?.property.id === property.id;
-                          return (
-                            <article
-                              key={property.id}
-                              className={`flex h-full flex-col rounded-2xl border bg-white shadow-sm transition ${isSpotlight ? "border-blue-400 shadow-lg shadow-blue-100" : "border-slate-200"}`}
-                            >
-                              <div className="h-32 w-full overflow-hidden rounded-t-2xl bg-gradient-to-tr from-blue-200 to-blue-50" aria-hidden />
-                              <div className="flex flex-1 flex-col gap-3 p-4 text-sm text-slate-600">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <h3 className="text-base font-semibold text-slate-900">{property.name}</h3>
-                                    <p>{property.location}</p>
-                                  </div>
-                                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
-                                    {fitLabel}
-                                  </span>
-                                </div>
-                                <p className="font-semibold text-slate-900">{formatCurrency(property.price)}</p>
-                                <p>{property.configuration} • {property.carpetArea}</p>
-                                <p className="text-xs uppercase tracking-wide text-slate-400">Key highlights</p>
-                                <ul className="space-y-1 text-xs">
-                                  {property.highlights.slice(0, 3).map((highlight: string) => (
-                                    <li key={highlight}>• {highlight}</li>
-                                  ))}
-                                </ul>
-                                <div className="mt-auto flex flex-wrap gap-2 text-xs">
-                                  <Link
-                                    href={property.detailsUrl}
-                                    target="_blank"
-                                    className="inline-flex items-center rounded-full border border-blue-200 px-3 py-1 font-medium text-blue-700 hover:bg-blue-50"
-                                  >
-                                    View details
-                                  </Link>
-                                  <a
-                                    href={`https://wa.me/${property.whatsappNumber}?text=${encodeURIComponent(ctaMessage)}`}
-                                    target="_blank"
-                                    className="inline-flex items-center rounded-full border border-emerald-200 px-3 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
-                                  >
-                                    WhatsApp RM
-                                  </a>
-                                </div>
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            </AnimatePresence>
-
-            <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-slate-500">
-                Step {step + 1} of {stepLabels.length}
-              </div>
-              <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:justify-end">
-                {step > 0 && (
+              )}
+              <div className="flex flex-wrap gap-2">
+                {savedSearches.map((saved) => (
                   <button
+                    key={saved}
+                    className="rounded-full border border-white/10 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-white/60 hover:text-white"
                     type="button"
-                    onClick={step === 3 ? handleExit : handleBack}
-                    className="rounded-full border border-slate-200 px-6 py-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                    onClick={() => setQuery(saved)}
                   >
-                    {step === 3 ? "Exit" : "Back"}
+                    {saved}
                   </button>
-                )}
-                {step < 3 && (
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    className="rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                  >
-                    Continue
-                  </button>
-                )}
+                ))}
               </div>
             </div>
           </div>
-        </section>
-      </main>
-
-      <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 px-4 py-4 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">Ready for a guided walkthrough?</span> Share your snapshot with our WhatsApp concierge.
+          <div className="grid gap-4 md:grid-cols-3">
+            {heroStats.map((stat) => (
+              <StatCard key={stat.label} label={stat.label} value={stat.value} />
+            ))}
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <a
-              href={getWhatsappLink(lead, summary, spotlightProperty)}
-              target="_blank"
-              className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-            >
-              Send WhatsApp summary
-            </a>
-            <button
-              type="button"
-              onClick={() => {
-                if (step < 3) {
-                  const stepErrors = makeErrorList(step, lead, income, loan);
-                  setErrors(stepErrors);
-                  if (stepErrors.summary.length === 0) {
-                    setLeadSynced(false);
-                    setStep(3);
-                  }
-                }
-              }}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 px-6 py-3 text-sm font-medium text-slate-600 transition hover:border-slate-300"
-            >
-              Jump to results
-            </button>
+          <div className="flex flex-wrap gap-4">
+            <Button size="lg" onClick={() => handleBook("Concierge liaison")}>Book a confidential briefing</Button>
+            <Button asChild variant="ghost">
+              <Link href="/listings">Explore listings</Link>
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+        <div className="space-y-4 rounded-[32px] border border-white/10 bg-[var(--gradient-hero)] p-8">
+          <p className="text-xs uppercase tracking-[0.4em] text-white/60">Live intelligence</p>
+          <div className="space-y-6">
+            {metrics.map((metric) => (
+              <div key={metric.id} className="rounded-2xl border border-white/10 bg-black/30 p-6">
+                <p className="text-sm text-white/60">{metric.label}</p>
+                <p className="mt-2 text-4xl font-semibold">{metric.value}</p>
+                <div className="mt-4 h-16 w-full rounded-xl bg-white/5">
+                  <div
+                    className="h-full rounded-xl bg-[var(--color-royal)]/50"
+                    style={{ width: `${metric.trend[metric.trend.length - 1] * 3}%` }}
+                  />
+                </div>
+                <p className={`mt-2 text-sm ${metric.delta >= 0 ? "text-[#61ffc8]" : "text-[#ff9c7b]"}`}>
+                  {metric.delta >= 0 ? "▲" : "▼"} {Math.abs(metric.delta)}% last 30d
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="page-shell mt-20 space-y-8">
+        <SectionHeading
+          eyebrow="Discovery"
+          title="Property intelligence with map-sync precision"
+          description="Filter, simulate, and book a site visit without leaving the hero canvas."
+        />
+        <div className="grid gap-6 lg:grid-cols-[1.15fr,0.85fr]">
+          <div className="grid gap-6 md:grid-cols-2">
+            {filteredProperties.slice(0, 4).map((property) => (
+              <PropertyCard
+                key={property.id}
+                property={property}
+                active={property.id === selectedPropertyId}
+                onHover={(value) => value && setSelectedPropertyId(value)}
+                onAction={() => handleBook(property.name)}
+              />
+            ))}
+            {filteredProperties.length === 0 ? (
+              <div className="surface-card col-span-2 text-center text-sm text-white/70">
+                <p>No properties match this input.</p>
+                <Button className="mt-4" onClick={() => setQuery("")}>Reset filters</Button>
+              </div>
+            ) : null}
+          </div>
+          <div className="space-y-4">
+            <MapPanel properties={properties} selectedId={selectedPropertyId ?? undefined} onSelect={setSelectedPropertyId} />
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">
+              <p className="text-xs uppercase tracking-[0.4em] text-white/60">Edge cases</p>
+              <p className="mt-2">
+                Explore no-result messaging, overloaded filters, and slow-network skeletons in the Listings page prototype.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button size="sm" onClick={() => setShowFallback(true)}>Simulate slow network</Button>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/listings">View full flow</Link>
+                </Button>
+              </div>
+              {showFallback ? (
+                <div className="mt-4 space-y-2">
+                  <div className="h-3 animate-pulse rounded-full bg-white/10" />
+                  <div className="h-3 animate-pulse rounded-full bg-white/10" />
+                  <div className="h-3 animate-pulse rounded-full bg-white/10" />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="page-shell mt-24 grid gap-10 lg:grid-cols-2">
+        <div className="glass-panel p-8 space-y-6">
+          <SectionHeading
+            eyebrow="Owner dashboard"
+            title="Portfolio cockpit for asset owners"
+            description="Monitor risk drift, liquidity windows, tenant covenants, and ESG readiness from one luxurious console."
+          />
+          <ul className="space-y-4 text-sm text-white/70">
+            <li>• Cashflow and IRR timeline with deviation alerts.</li>
+            <li>• Interactive asset allocation donut with drill-down.</li>
+            <li>• Co-investor communication trails and trust badges.</li>
+            <li>• Microcopy reveals on click for compliance narratives.</li>
+          </ul>
+          <Button asChild size="lg">
+            <Link href="/dashboard">Open owner dashboard</Link>
+          </Button>
+        </div>
+        <div className="glass-panel p-8 space-y-6">
+          <SectionHeading
+            eyebrow="Conversion focus"
+            title="Lead orchestration without friction"
+            description="Every screen keeps a Book/View CTA visible and keyboard-accessible."
+          />
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <p className="text-sm text-white/60">Schedule micro-interaction</p>
+            <p className="font-serif text-2xl">One-click concierge</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button size="lg" onClick={() => handleBook("Portfolio preview")}>Schedule now</Button>
+              <Button size="lg" variant="ghost" asChild>
+                <Link href="/contact">Contact team</Link>
+              </Button>
+            </div>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <p className="text-sm text-white/60">Trust microcopy</p>
+            <p className="font-serif text-2xl">ISO 27001 • GDPR • SOC 2 Type II</p>
+            <p className="mt-2 text-sm text-white/70">Microcopy reveals appear on focus/hover to assure compliance-driven investors.</p>
+          </div>
+        </div>
+      </section>
+
+      <Testimonials />
+
+      <section className="page-shell mt-20 mb-24">
+        <div className="rounded-[40px] border border-white/10 bg-white/5 p-10 text-center">
+          <SectionHeading
+            align="center"
+            eyebrow="Prototype"
+            title="Click through the full Tycoon Estates experience"
+            description="Desktop, tablet, and mobile flows show predictive search, map sync, schedule modals, and dashboards with ≥10 purposeful micro-animations."
+          />
+          <div className="mt-8 flex flex-wrap justify-center gap-4">
+            <Button asChild size="lg">
+              <Link href="/listings">Launch interactive prototype</Link>
+            </Button>
+            <Button asChild size="lg" variant="ghost">
+              <Link href="/style-guide">View style guide</Link>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {scheduleOpen ? (
+        <ScheduleModal propertyName={scheduleTarget} onClose={() => setScheduleOpen(false)} />
+      ) : null}
+    </>
   );
 }

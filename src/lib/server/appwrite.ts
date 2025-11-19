@@ -79,6 +79,14 @@ export type PropertyDocument = Models.Document & {
   imageUrl?: string;
   whatsappNumber?: string;
   detailsUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  roi?: number;
+  occupancyRate?: number;
+  heroImages?: string[];
+  videoUrl?: string;
+  tags?: string[];
+  certification?: string;
 };
 
 export { ID, Query };

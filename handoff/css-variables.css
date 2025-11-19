@@ -1,0 +1,21 @@
+:root {
+  --color-charcoal: #050b16;
+  --color-slate: #111726;
+  --color-ink: #1f2633;
+  --color-cloud: #f5f6f8;
+  --color-mist: #dbe0ea;
+  --color-royal: #0a5dff;
+  --color-gold: #c89b3c;
+  --color-success: #0fbf78;
+  --color-warning: #ffb638;
+  --color-danger: #ff5c5c;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --radius-lg: 28px;
+  --radius-xl: 40px;
+  --gap-4: 16px;
+  --gap-6: 24px;
+  --gap-8: 32px;
+  --shadow-soft: 0 12px 32px rgba(5, 11, 22, 0.45);
+  --shadow-card: 0 20px 60px rgba(5, 10, 18, 0.55);
+}

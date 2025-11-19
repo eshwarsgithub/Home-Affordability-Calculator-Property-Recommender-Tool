@@ -1,0 +1,15 @@
+{
+  "icons": [
+    { "name": "shield", "path": "public/icons/shield.svg", "size": "48x48", "format": "svg" },
+    { "name": "map-pin", "path": "public/icons/map-pin.svg", "size": "48x48", "format": "svg" },
+    { "name": "spark", "path": "public/icons/spark.svg", "size": "48x48", "format": "svg" }
+  ],
+  "images": [
+    { "name": "hero-gallery", "source": "Unsplash premium set", "usage": "Property hero", "format": "remote WebP/JPEG" },
+    { "name": "palette-sample", "path": "public/images/samples/palette.png", "dimensions": "8x8", "format": "png" }
+  ],
+  "documents": [
+    { "name": "style-guide", "path": "docs/style-guide.pdf", "format": "pdf" },
+    { "name": "developer-handoff", "path": "docs/developer-handoff.md", "format": "markdown" }
+  ]
+}
