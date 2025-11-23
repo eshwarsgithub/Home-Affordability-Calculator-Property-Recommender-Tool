@@ -24,7 +24,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      {/*
+        suppressHydrationWarning: Some browser extensions (e.g. Grammarly) inject attributes
+        into the DOM (data-new-gr-c-s-check-loaded, data-gr-ext-installed) which mutate
+        the server-rendered HTML before React hydrates. That causes hydration mismatch
+        warnings. This attribute silences those warnings for the `<body>` and its
+        descendants. Remove this after verifying no extensions or client-only code
+        cause mismatches in a production environment.
+      */}
       <body
+        suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}

@@ -4,9 +4,9 @@ type AppwriteConfig = {
   endpoint: string;
   projectId: string;
   apiKey: string;
-  databaseId: string;
-  leadsCollectionId: string;
-  propertiesCollectionId: string;
+  databaseId?: string;
+  leadsCollectionId?: string;
+  propertiesCollectionId?: string;
 };
 
 const getConfig = (): AppwriteConfig => {
@@ -18,11 +18,7 @@ const getConfig = (): AppwriteConfig => {
   const propertiesCollectionId = process.env.APPWRITE_PROPERTIES_COLLECTION_ID;
 
   if (!endpoint || !projectId || !apiKey) {
-    throw new Error("Missing Appwrite credentials: ensure APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_API_KEY are configured.");
-  }
-
-  if (!databaseId || !leadsCollectionId || !propertiesCollectionId) {
-    throw new Error("Missing Appwrite IDs: set APPWRITE_DATABASE_ID, APPWRITE_LEADS_COLLECTION_ID, APPWRITE_PROPERTIES_COLLECTION_ID.");
+    throw new Error("Missing Appwrite credentials: configure APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, and APPWRITE_API_KEY.");
   }
 
   return {
@@ -51,10 +47,86 @@ export const getDatabases = () => {
   return cachedDatabases;
 };
 
-export const getDatabaseIds = () => {
-  const { databaseId, leadsCollectionId, propertiesCollectionId } = getConfig();
-  return { databaseId, leadsCollectionId, propertiesCollectionId };
+type DatabaseIdRequest = "leads" | "properties";
+
+export function getDatabaseIds(): {
+  databaseId: string;
+  leadsCollectionId: string;
+  propertiesCollectionId: string;
 };
+export function getDatabaseIds(request: "leads"): {
+  databaseId: string;
+  leadsCollectionId: string;
+};
+export function getDatabaseIds(request: "properties"): {
+  databaseId: string;
+  propertiesCollectionId: string;
+};
+export function getDatabaseIds(request1: "leads", request2: "properties"): {
+  databaseId: string;
+  leadsCollectionId: string;
+  propertiesCollectionId: string;
+};
+export function getDatabaseIds(...requests: DatabaseIdRequest[]) {
+  const { databaseId, leadsCollectionId, propertiesCollectionId } = getConfig();
+
+  if (!databaseId) {
+    throw new Error("Missing Appwrite database id: set APPWRITE_DATABASE_ID.");
+  }
+
+  const needs = requests.length > 0 ? requests : ["leads", "properties"];
+
+  const result: {
+    databaseId: string;
+    leadsCollectionId?: string;
+    propertiesCollectionId?: string;
+  } = { databaseId };
+
+  const requiresLeads = needs.includes("leads");
+  const requiresProperties = needs.includes("properties");
+
+  if (requiresLeads) {
+    if (!leadsCollectionId) {
+      throw new Error("Missing Appwrite leads collection id: set APPWRITE_LEADS_COLLECTION_ID.");
+    }
+    result.leadsCollectionId = leadsCollectionId;
+  }
+
+  if (requiresProperties) {
+    if (!propertiesCollectionId) {
+      throw new Error("Missing Appwrite properties collection id: set APPWRITE_PROPERTIES_COLLECTION_ID.");
+    }
+    result.propertiesCollectionId = propertiesCollectionId;
+  }
+
+  if (requiresLeads && requiresProperties) {
+    return result as {
+      databaseId: string;
+      leadsCollectionId: string;
+      propertiesCollectionId: string;
+    };
+  }
+
+  if (requiresLeads) {
+    return result as {
+      databaseId: string;
+      leadsCollectionId: string;
+    };
+  }
+
+  if (requiresProperties) {
+    return result as {
+      databaseId: string;
+      propertiesCollectionId: string;
+    };
+  }
+
+  return result as {
+    databaseId: string;
+    leadsCollectionId: string;
+    propertiesCollectionId: string;
+  };
+}
 
 export type LeadsDocument = Models.Document & {
   name: string;

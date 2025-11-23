@@ -1,723 +1,431 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { properties as fallbackProperties } from "@/data/properties";
-import type { Property } from "@/data/properties";
-import {
-  AffordabilityBreakdown,
-  calculateAffordability,
-  buildEmiTable,
-  formatCurrency,
-  matchProperties,
-} from "@/lib/calculations";
-import type { PropertyMatch } from "@/lib/calculations";
-
-const whatsappNumber = "917676767676";
-const phoneRegex = /^[6-9]\d{9}$/;
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { useMemo, useState } from "react";
+import { calculateAffordability, buildEmiTable, formatCurrency } from "@/lib/calculations";
+import type { EmploymentType } from "@/lib/calculations";
 
 const tenureBounds = { min: 15, max: 30 };
 const downPaymentBounds = { min: 0.2, max: 0.5 };
+const DEFAULT_EMPLOYMENT_TYPE: EmploymentType = "salaried";
+const DEFAULT_MONTHLY_INCOME = 0;
+const DEFAULT_EXISTING_EMIS = 0;
+const DEFAULT_CO_INCOME = 60000;
+const DEFAULT_CO_AGE = 30;
+const DEFAULT_TENURE = 20;
+const DEFAULT_DOWN_PAYMENT = 0.25;
+const DEFAULT_INTEREST = 8.5;
 
-const stepLabels = ["Lead details", "Income profile", "Loan structure", "Results"] as const;
-type Step = 0 | 1 | 2 | 3;
-
-interface LeadDetails {
-  name: string;
-  phone: string;
-  email: string;
-  consent: boolean;
-}
-
-interface IncomeDetails {
-  employmentType: "salaried" | "self-employed";
-  monthlyIncome: number;
-  existingEmis: number;
-  age: number;
-  hasCoApplicant: boolean;
-  coApplicantIncome: number;
-  coApplicantAge: number;
-}
-
-interface LoanPreferences {
-  tenureYears: number;
-  downPaymentPercent: number;
-  interestRate: number;
-}
-
-const createInitialLead = (): LeadDetails => ({
-  name: "",
-  phone: "",
-  email: "",
-  consent: false,
-});
-
-const createInitialIncome = (): IncomeDetails => ({
-  employmentType: "salaried",
-  monthlyIncome: 85000,
-  existingEmis: 0,
-  age: 30,
-  hasCoApplicant: false,
-  coApplicantIncome: 0,
-  coApplicantAge: 28,
-});
-
-const createInitialLoan = (): LoanPreferences => ({
-  tenureYears: 20,
-  downPaymentPercent: 0.25,
-  interestRate: 8.5,
-});
-
-const clampTenure = (value: number) => Math.min(tenureBounds.max, Math.max(tenureBounds.min, Math.round(value)));
-const clampDownPayment = (value: number) => {
-  const clamped = Math.min(downPaymentBounds.max, Math.max(downPaymentBounds.min, value));
-  return Number(clamped.toFixed(2));
-};
+const panelClass = "rounded-3xl border border-white/10 bg-neutral-950/80 backdrop-blur-xl shadow-[0_40px_80px_-40px_rgba(0,0,0,0.8)]";
+const cardClass = "rounded-2xl border border-white/10 bg-white/5";
+const labelClass = "text-sm font-medium text-slate-200";
+const helperTextClass = "text-xs text-slate-400";
+const inputBaseClass = "mt-1 w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 shadow-sm focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-300/40";
+const checkboxClass = "h-5 w-5 rounded border-white/25 bg-white/10 text-teal-300 focus:ring-teal-400";
 
 const tenureVariants = (selected: number) => {
-  const variants = new Set([15, 20, 25, 30, selected]);
+  const variants = new Set<number>([selected]);
+  variants.add(Math.max(tenureBounds.min, selected - 5));
+  variants.add(Math.min(tenureBounds.max, selected + 5));
+  variants.add(Math.max(tenureBounds.min, selected - 10));
+  variants.add(Math.min(tenureBounds.max, selected + 10));
   return Array.from(variants).sort((a, b) => a - b);
 };
 
-const getWhatsappLink = (
-  lead: LeadDetails,
-  summary: AffordabilityBreakdown,
-  spotlightProperty?: PropertyMatch<Property>,
-) => {
-  const intro = lead.name ? `Hi, I'm ${lead.name}` : "Hi";
-  const propertyLine = spotlightProperty
-    ? ` I'm particularly interested in ${spotlightProperty.property.name} at ${formatCurrency(spotlightProperty.property.price)}.`
-    : "";
-  const message = `${intro}. I just completed the Harihara affordability check. Eligible loan ${formatCurrency(
-    summary.eligibleLoanAmount,
-  )} and target budget ${formatCurrency(summary.affordablePrice)}.${propertyLine} Could we schedule a site visit?`;
-  return `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-};
-
-const mapDocumentToProperty = (doc: unknown): Property | null => {
-  if (!doc || typeof doc !== "object") return null;
-  const record = doc as Record<string, unknown> & { $id?: string; id?: string };
-  if (typeof record.name !== "string" || typeof record.location !== "string") return null;
-  if (typeof record.price !== "number") return null;
-
-  const highlights = Array.isArray(record.highlights)
-    ? (record.highlights as unknown[]).filter((item): item is string => typeof item === "string")
-    : [];
-
-  const generatedId = (() => {
-    if (typeof record.$id === "string") return record.$id;
-    if (typeof record.id === "string") return record.id;
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
-    }
-    return Math.random().toString(36).slice(2);
-  })();
-
-  return {
-    id: generatedId,
-    name: record.name,
-    location: record.location,
-    configuration: typeof record.configuration === "string" ? record.configuration : "",
-    price: record.price,
-    carpetArea: typeof record.carpetArea === "string" ? record.carpetArea : "",
-    possession: typeof record.possession === "string" ? record.possession : "",
-    highlights: highlights.length > 0 ? highlights : [],
-    imageUrl: typeof record.imageUrl === "string" ? record.imageUrl : "",
-    whatsappNumber: typeof record.whatsappNumber === "string" ? record.whatsappNumber : whatsappNumber,
-    detailsUrl: typeof record.detailsUrl === "string" ? record.detailsUrl : "",
-  };
-};
-
-interface ValidationResult {
-  summary: string[];
-  fields: Partial<Record<string, string>>;
-}
-
-const emptyValidation: ValidationResult = { summary: [], fields: {} };
-
-const makeErrorList = (
-  step: Step,
-  lead: LeadDetails,
-  income: IncomeDetails,
-  loan: LoanPreferences,
-): ValidationResult => {
-  const summary: string[] = [];
-  const fields: ValidationResult["fields"] = {};
-  const totalIncome = income.monthlyIncome + (income.hasCoApplicant ? income.coApplicantIncome : 0);
-
-  if (step === 0) {
-    if (!lead.name.trim()) {
-      const message = "Please enter the buyer name.";
-      summary.push(message);
-      fields.name = message;
-    }
-    if (!phoneRegex.test(lead.phone)) {
-      const message = "Enter a 10 digit Indian phone number starting with 6-9.";
-      summary.push(message);
-      fields.phone = message;
-    }
-    if (!emailRegex.test(lead.email)) {
-      const message = "Enter a valid email address.";
-      summary.push(message);
-      fields.email = message;
-    }
-    if (!lead.consent) {
-      const message = "Consent is required to proceed.";
-      summary.push(message);
-      fields.consent = message;
-    }
-  }
-
-  if (step === 1) {
-    if (income.monthlyIncome < 15000) {
-      const message = "Monthly income must be at least ₹15,000.";
-      summary.push(message);
-      fields.monthlyIncome = message;
-    }
-    if (income.existingEmis < 0) {
-      const message = "Existing EMIs cannot be negative.";
-      summary.push(message);
-      fields.existingEmis = message;
-    }
-    if (income.age < 23 || income.age > 60) {
-      const message = "Primary applicant age must be between 23 and 60.";
-      summary.push(message);
-      fields.age = message;
-    }
-    if (income.existingEmis > totalIncome * 0.8) {
-      const message = "Existing EMIs should not exceed 80% of combined income.";
-      summary.push(message);
-      fields.existingEmis = message;
-    }
-    if (income.hasCoApplicant) {
-      if (income.coApplicantIncome <= 0) {
-        const message = "Add co-applicant income or remove the co-applicant.";
-        summary.push(message);
-        fields.coApplicantIncome = message;
-      }
-      if (income.coApplicantAge < 21 || income.coApplicantAge > 60) {
-        const message = "Co-applicant age must be between 21 and 60.";
-        summary.push(message);
-        fields.coApplicantAge = message;
-      }
-    }
-  }
-
-  if (step === 2) {
-    if (loan.tenureYears + income.age > 70) {
-      const message = "Age plus tenure should not exceed 70 years.";
-      summary.push(message);
-      fields.tenureYears = message;
-    }
-    if (loan.interestRate <= 0 || loan.interestRate > 15) {
-      const message = "Set a realistic annual interest rate (0.1% - 15%).";
-      summary.push(message);
-      fields.interestRate = message;
-    }
-  }
-
-  return { summary, fields };
-};
+const clampTenure = (value: number) => Math.min(tenureBounds.max, Math.max(tenureBounds.min, Math.round(value)));
+const clampDownPayment = (value: number) => Math.min(downPaymentBounds.max, Math.max(downPaymentBounds.min, Number(value.toFixed(2))));
 
 export default function Home() {
-  const [step, setStep] = useState<Step>(0);
-  const [lead, setLead] = useState<LeadDetails>(() => createInitialLead());
-  const [income, setIncome] = useState<IncomeDetails>(() => createInitialIncome());
-  const [loan, setLoan] = useState<LoanPreferences>(() => createInitialLoan());
-  const [errors, setErrors] = useState<ValidationResult>(emptyValidation);
-  const [propertyList, setPropertyList] = useState<Property[]>(fallbackProperties);
-  const [leadSynced, setLeadSynced] = useState(false);
-  const [leadSaving, setLeadSaving] = useState(false);
-  const [leadSyncError, setLeadSyncError] = useState<string | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [monthlyIncome, setMonthlyIncome] = useState(DEFAULT_MONTHLY_INCOME);
+  const [existingEmis, setExistingEmis] = useState(DEFAULT_EXISTING_EMIS);
+  const [hasCoApplicant, setHasCoApplicant] = useState(false);
+  const [coApplicantIncome, setCoApplicantIncome] = useState(DEFAULT_CO_INCOME);
+  const [coApplicantAge, setCoApplicantAge] = useState(DEFAULT_CO_AGE);
+  const [tenureYears, setTenureYears] = useState(DEFAULT_TENURE);
+  const [downPaymentPercent, setDownPaymentPercent] = useState(DEFAULT_DOWN_PAYMENT);
+  const [interestRate, setInterestRate] = useState(DEFAULT_INTEREST);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
-  const prefersReducedMotion = useReducedMotion();
-
-  const resetFlow = () => {
-    setLead(createInitialLead());
-    setIncome(createInitialIncome());
-    setLoan(createInitialLoan());
-    setErrors(emptyValidation);
-    setLeadSynced(false);
-    setLeadSaving(false);
-    setLeadSyncError(null);
-    setStep(0);
+  const clearMessages = () => {
+    setFormError(null);
+    setFormSuccess(null);
   };
 
-  const markLeadDirty = () => {
-    if (leadSynced) {
-      setLeadSynced(false);
-    }
-    if (leadSyncError) {
-      setLeadSyncError(null);
-    }
+  const resetForm = () => {
+    setFullName("");
+    setEmail("");
+    setPhoneNumber("");
+    setMonthlyIncome(DEFAULT_MONTHLY_INCOME);
+    setExistingEmis(DEFAULT_EXISTING_EMIS);
+    setHasCoApplicant(false);
+    setCoApplicantIncome(DEFAULT_CO_INCOME);
+    setCoApplicantAge(DEFAULT_CO_AGE);
+    setTenureYears(DEFAULT_TENURE);
+    setDownPaymentPercent(DEFAULT_DOWN_PAYMENT);
+    setInterestRate(DEFAULT_INTEREST);
   };
 
-  const calcInput = useMemo(() => ({
-    primaryIncome: income.monthlyIncome,
-    coApplicantIncome: income.hasCoApplicant ? income.coApplicantIncome : 0,
-    existingEmis: income.existingEmis,
-    employmentType: income.employmentType,
-    hasYoungCoApplicant: income.hasCoApplicant && income.coApplicantAge <= 35,
-    tenureYears: loan.tenureYears,
-    downPaymentPercent: loan.downPaymentPercent,
-    interestRate: loan.interestRate,
-  }), [income, loan]);
-
-  const summary = useMemo<AffordabilityBreakdown>(() => calculateAffordability(calcInput), [calcInput]);
-  const propertyMatches = useMemo(
-    () => matchProperties(propertyList, summary.affordablePrice, 9),
-    [propertyList, summary.affordablePrice],
+  const affordabilityInput = useMemo(
+    () => ({
+      primaryIncome: monthlyIncome,
+      coApplicantIncome: hasCoApplicant ? coApplicantIncome : 0,
+      existingEmis,
+      employmentType: DEFAULT_EMPLOYMENT_TYPE,
+      hasYoungCoApplicant: hasCoApplicant && coApplicantAge <= 35,
+      tenureYears,
+      downPaymentPercent,
+      interestRate,
+    }),
+    [monthlyIncome, hasCoApplicant, coApplicantIncome, existingEmis, coApplicantAge, tenureYears, downPaymentPercent, interestRate],
   );
 
-  const spotlightProperty = propertyMatches[0];
+  const summary = useMemo(() => calculateAffordability(affordabilityInput), [affordabilityInput]);
 
-  useEffect(() => {
-    const fetchProperties = async () => {
-      try {
-        const response = await fetch("/api/properties", { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`Status ${response.status}`);
-        }
-        const payload = await response.json();
-        if (Array.isArray(payload.properties)) {
-          const mapped = payload.properties
-            .map(mapDocumentToProperty)
-            .filter((property: Property | null): property is Property => property !== null);
-          if (mapped.length > 0) {
-            setPropertyList(mapped);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load properties from Appwrite", error);
-      }
-    };
+  const emiRows = useMemo(
+    () => buildEmiTable(summary.eligibleLoanAmount, interestRate, tenureVariants(tenureYears)),
+    [summary.eligibleLoanAmount, interestRate, tenureYears],
+  );
 
-    fetchProperties().catch((error) => console.error(error));
-  }, []);
+  const analysisBullets = useMemo(() => {
+    const downPaymentPct = Math.round(downPaymentPercent * 100);
+    const bullets: string[] = [
+      `Combined monthly income of ${formatCurrency(summary.totalIncome)} supports EMIs up to ${formatCurrency(summary.maxEligibleEmi)} with a ${(summary.foirApplied * 100).toFixed(0)}% FOIR.`,
+      `At ${interestRate.toFixed(1)}% for ${tenureYears} years you can borrow approximately ${formatCurrency(summary.eligibleLoanAmount)}.`,
+      `Plan for a ${downPaymentPct}% down payment (~${formatCurrency(summary.downPaymentAmount)}) to target a purchase budget of ${formatCurrency(summary.affordablePrice)}.`,
+    ];
+    if (hasCoApplicant) {
+      bullets.splice(1, 0, `Co-applicant income of ${formatCurrency(coApplicantIncome)} at age ${coApplicantAge} keeps the FOIR boost active.`);
+    } else {
+      bullets.splice(1, 0, "Add a co-applicant under 35 to unlock an additional FOIR boost if needed.");
+    }
+    return bullets;
+  }, [
+    summary.totalIncome,
+    summary.maxEligibleEmi,
+    summary.foirApplied,
+    interestRate,
+    tenureYears,
+    summary.eligibleLoanAmount,
+    downPaymentPercent,
+    summary.downPaymentAmount,
+    summary.affordablePrice,
+    hasCoApplicant,
+    coApplicantIncome,
+    coApplicantAge,
+  ]);
 
-  useEffect(() => {
-    if (step !== 3 || leadSynced || leadSaving) {
+  const handleExit = async () => {
+    if (isSubmitting) return;
+
+    clearMessages();
+
+    const name = fullName.trim();
+    const emailAddress = email.trim();
+    const phone = phoneNumber.trim();
+
+    if (!name || !emailAddress || !phone) {
+      setFormError("Please share your name, email, and phone number before exiting.");
       return;
     }
 
-    let cancelled = false;
+    setIsSubmitting(true);
 
-    const syncLead = async () => {
-      try {
-        setLeadSaving(true);
-        const response = await fetch("/api/leads", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+    try {
+      const response = await fetch("/api/leads", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lead: { name, email: emailAddress, phone },
+          summary,
+          loan: {
+            tenureYears,
+            downPaymentPercent,
+            interestRate,
           },
-          body: JSON.stringify({
-            lead: {
-              name: lead.name.trim(),
-              phone: lead.phone,
-              email: lead.email,
-              consent: lead.consent,
-            },
-            summary: {
-              eligibleLoanAmount: summary.eligibleLoanAmount,
-              affordablePrice: summary.affordablePrice,
-              maxEligibleEmi: summary.maxEligibleEmi,
-              foirApplied: summary.foirApplied,
-            },
-            loan: {
-              tenureYears: loan.tenureYears,
-              downPaymentPercent: loan.downPaymentPercent,
-              interestRate: loan.interestRate,
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Lead sync failed with status ${response.status}`);
-        }
-
-        if (!cancelled) {
-          setLeadSynced(true);
-          setLeadSyncError(null);
-        }
-      } catch (error) {
-        console.error("Lead sync failed", error);
-        if (!cancelled) {
-          setLeadSyncError("Could not sync lead to CRM. Please try again later.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLeadSaving(false);
-        }
-      }
-    };
-
-    syncLead().catch((error) => console.error(error));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    step,
-    leadSynced,
-    leadSaving,
-    lead.name,
-    lead.phone,
-    lead.email,
-    lead.consent,
-    loan.tenureYears,
-    loan.downPaymentPercent,
-    loan.interestRate,
-    summary.eligibleLoanAmount,
-    summary.affordablePrice,
-    summary.maxEligibleEmi,
-    summary.foirApplied,
-  ]);
-
-  const emiRows = useMemo(
-    () => buildEmiTable(summary.eligibleLoanAmount, loan.interestRate, tenureVariants(loan.tenureYears)),
-    [summary.eligibleLoanAmount, loan.interestRate, loan.tenureYears],
-  );
-
-  const handleNext = () => {
-    const stepErrors = makeErrorList(step, lead, income, loan);
-    setErrors(stepErrors);
-    if (stepErrors.summary.length === 0 && step < 3) {
-      setStep((prev) => {
-        const nextStep = (prev + 1) as Step;
-        if (nextStep >= 3) {
-          setLeadSynced(false);
-        }
-        return nextStep;
+        }),
       });
-    }
-  };
 
-  const handleBack = () => {
-    setErrors(emptyValidation);
-    setStep((prev) => {
-      const nextStep = Math.max(0, prev - 1) as Step;
-      if (nextStep < 3) {
-        setLeadSynced(false);
+      if (!response.ok) {
+        let errorMessage = "Unable to save your details right now. Please try again.";
+        try {
+          const data = await response.json();
+          if (data?.error) {
+            errorMessage = String(data.error);
+          }
+        } catch {
+          // ignore JSON parsing issues so we can surface a generic error
+        }
+        throw new Error(errorMessage);
       }
-      return nextStep;
-    });
-  };
 
-  const handleExit = () => {
-    resetFlow();
-    if (typeof window !== "undefined") {
-      window.location.href = "/";
+      setFormSuccess("Thanks! We saved your details and will reach out soon.");
+      resetForm();
+      setTimeout(() => {
+        window.location.reload();
+      }, 400);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error while saving lead.";
+      setFormError(message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950/3">
-      <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-10 px-4 pb-24 pt-10 sm:px-8 lg:px-12">
-        <header className="flex flex-col gap-2">
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">Harihara Constructions</p>
-          <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Home Affordability Calculator</h1>
-          <p className="max-w-3xl text-base text-slate-600">
-            Complete the guided four-step journey to receive a bank-aligned purchase budget and instantly view curated Harihara properties that fit your eligibility. The flow is optimized to finish in under a minute.
+    <div className="min-h-screen bg-black/95">
+      <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-12 px-4 pb-32 pt-12 sm:px-8 lg:px-12">
+        <header className="flex flex-col gap-4">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-slate-300 backdrop-blur">
+            Harihara Constructions
+          </span>
+          <h1 className="bg-gradient-to-r from-[#5d8bff] via-[#7b5bff] to-[#ff44c0] bg-clip-text text-3xl font-bold text-transparent sm:text-5xl">
+            Instant Affordability Snapshot
+          </h1>
+          <p className="max-w-3xl text-base text-slate-300">
+            Enter your monthly gross salary and optional adjustments. We will estimate your maximum home loan eligibility and show EMI scenarios across popular tenures.
           </p>
         </header>
 
-        <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-            <ol className="flex flex-wrap gap-4 text-sm font-medium text-slate-500">
-              {stepLabels.map((label, index) => {
-                const isActive = index === step;
-                const isCompleted = index < step;
-                return (
-                  <li key={label} className={`flex items-center gap-2 ${isActive ? "text-blue-700" : isCompleted ? "text-emerald-600" : "text-slate-400"}`}>
-                    <span className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs ${isActive ? "border-blue-700 bg-blue-50" : isCompleted ? "border-emerald-600 bg-emerald-50" : "border-slate-300 bg-white"}`}>
-                      {index + 1}
-                    </span>
-                    {label}
-                    {index < stepLabels.length - 1 && (
-                      <span className="hidden sm:inline" aria-hidden>
-                        {">"}
-                      </span>
+        <section className={panelClass}>
+          <div className="flex flex-col gap-10 px-6 py-10 sm:px-8 lg:px-12">
+            <div className="grid gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <h2 className="text-lg font-semibold text-slate-100">Tell us about your income</h2>
+                  <p className="text-sm text-slate-400">
+                    The more accurate the salary and existing commitments, the sharper the eligibility calculation. Start with your gross monthly salary and tweak the rest only if needed.
+                  </p>
+                </div>
+
+                {(formError || formSuccess) && (
+                  <div aria-live="polite" className="space-y-3">
+                    {formError && (
+                      <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                        {formError}
+                      </div>
                     )}
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-
-          <div className="px-6 py-8">
-            {errors.summary.length > 0 && (
-              <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-semibold">Please review and update:</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5">
-                  {errors.summary.map((error) => (
-                    <li key={error}>{error}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={step}
-                initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -16 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: "easeOut" }}
-              >
-                {step === 0 && (
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="name">Primary applicant name</label>
-                      <input
-                        id="name"
-                        type="text"
-                        aria-invalid={Boolean(errors.fields.name)}
-                        aria-describedby={errors.fields.name ? "error-name" : undefined}
-                        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 ${errors.fields.name ? "border-rose-400" : "border-slate-200"}`}
-                        value={lead.name}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, name: event.target.value }));
-                        }}
-                        placeholder="e.g. Harihara Kumar"
-                      />
-                      {errors.fields.name && (
-                        <p id="error-name" className="mt-1 text-xs text-rose-600">
-                          {errors.fields.name}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="phone">Mobile number</label>
-                      <input
-                        id="phone"
-                        type="tel"
-                        inputMode="numeric"
-                        aria-invalid={Boolean(errors.fields.phone)}
-                        aria-describedby={errors.fields.phone ? "error-phone" : undefined}
-                        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 ${errors.fields.phone ? "border-rose-400" : "border-slate-200"}`}
-                        value={lead.phone}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, phone: event.target.value.replace(/[^0-9]/g, "") }));
-                        }}
-                        placeholder="9876543210"
-                      />
-                      {errors.fields.phone && (
-                        <p id="error-phone" className="mt-1 text-xs text-rose-600">
-                          {errors.fields.phone}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="email">Work email</label>
-                      <input
-                        id="email"
-                        type="email"
-                        aria-invalid={Boolean(errors.fields.email)}
-                        aria-describedby={errors.fields.email ? "error-email" : undefined}
-                        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 ${errors.fields.email ? "border-rose-400" : "border-slate-200"}`}
-                        value={lead.email}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, email: event.target.value }));
-                        }}
-                        placeholder="you@company.com"
-                      />
-                      {errors.fields.email && (
-                        <p id="error-email" className="mt-1 text-xs text-rose-600">
-                          {errors.fields.email}
-                        </p>
-                      )}
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                      <p className="mb-2 font-semibold text-slate-700">60-second experience</p>
-                      <p>We use your details to assign a relationship manager and send the affordability snapshot.</p>
-                    </div>
-                    <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={lead.consent}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setLead((prev) => ({ ...prev, consent: event.target.checked }));
-                        }}
-                        className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>I consent to Harihara Constructions contacting me via phone, email, or WhatsApp for project information.</span>
-                    </label>
+                    {formSuccess && (
+                      <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                        {formSuccess}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {step === 1 && (
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-700">Employment type</label>
-                      <div className="flex gap-3">
-                        {["salaried", "self-employed"].map((type) => (
-                          <button
-                            key={type}
-                            type="button"
-                            className={`flex-1 rounded-xl border px-4 py-3 text-sm font-medium capitalize transition ${income.employmentType === type ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
-                            onClick={() => {
-                              markLeadDirty();
-                              setIncome((prev) => ({ ...prev, employmentType: type as IncomeDetails["employmentType"] }));
-                            }}
-                          >
-                            {type.replace("-", " ")}
-                          </button>
-                        ))}
-                      </div>
+                <div className={`${cardClass} p-6`}>
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <div className="sm:col-span-3">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Contact details</h3>
                     </div>
-
                     <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="monthlyIncome">Monthly take-home (₹)</label>
+                      <label className={labelClass} htmlFor="fullName">
+                        Full name
+                      </label>
+                      <input
+                        id="fullName"
+                        type="text"
+                        className={inputBaseClass}
+                        value={fullName}
+                        onChange={(event) => {
+                          clearMessages();
+                          setFullName(event.target.value);
+                        }}
+                        placeholder="Aditya Sharma"
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass} htmlFor="email">
+                        Email
+                      </label>
+                      <input
+                        id="email"
+                        type="email"
+                        className={inputBaseClass}
+                        value={email}
+                        onChange={(event) => {
+                          clearMessages();
+                          setEmail(event.target.value);
+                        }}
+                        placeholder="you@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass} htmlFor="phone">
+                        Phone number
+                      </label>
+                      <input
+                        id="phone"
+                        type="tel"
+                        className={inputBaseClass}
+                        value={phoneNumber}
+                        onChange={(event) => {
+                          clearMessages();
+                          setPhoneNumber(event.target.value);
+                        }}
+                        placeholder="98765 43210"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`${cardClass} p-6`}>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <label className={labelClass} htmlFor="monthlyIncome">
+                        Monthly gross salary (₹)
+                      </label>
                       <input
                         id="monthlyIncome"
                         type="number"
                         min={0}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        value={income.monthlyIncome}
+                        className={inputBaseClass}
+                        value={monthlyIncome}
                         onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({ ...prev, monthlyIncome: Number(event.target.value) }));
+                          clearMessages();
+                          setMonthlyIncome(Number(event.target.value));
                         }}
                       />
                     </div>
 
                     <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="existingEmis">Existing monthly EMIs (₹)</label>
+                      <label className={labelClass} htmlFor="existingEmis">
+                        Existing EMIs (₹)
+                      </label>
                       <input
                         id="existingEmis"
                         type="number"
                         min={0}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        value={income.existingEmis}
+                        className={inputBaseClass}
+                        value={existingEmis}
                         onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({ ...prev, existingEmis: Number(event.target.value) }));
+                          clearMessages();
+                          setExistingEmis(Math.max(0, Number(event.target.value)));
                         }}
                       />
+                      <p className={helperTextClass}>Leave this as 0 if you have no active loans.</p>
                     </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="age">Applicant age</label>
-                      <input
-                        id="age"
-                        type="number"
-                        min={18}
-                        max={65}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        value={income.age}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({ ...prev, age: Number(event.target.value) }));
-                        }}
-                      />
-                    </div>
-
-                    <label className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={income.hasCoApplicant}
-                        onChange={(event) => {
-                          markLeadDirty();
-                          setIncome((prev) => ({
-                            ...prev,
-                            hasCoApplicant: event.target.checked,
-                            coApplicantIncome: event.target.checked ? prev.coApplicantIncome || 60000 : 0,
-                          }));
-                        }}
-                        className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      Add a co-applicant (boosts FOIR if under 35)
-                    </label>
-
-                    {income.hasCoApplicant && (
-                      <div className="sm:col-span-2 grid gap-6 sm:grid-cols-2">
-                        <div>
-                          <label className="text-sm font-medium text-slate-700" htmlFor="coIncome">Co-applicant monthly income (₹)</label>
-                          <input
-                            id="coIncome"
-                            type="number"
-                            min={0}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                            value={income.coApplicantIncome}
-                            onChange={(event) => {
-                              markLeadDirty();
-                              setIncome((prev) => ({ ...prev, coApplicantIncome: Number(event.target.value) }));
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-slate-700" htmlFor="coAge">Co-applicant age</label>
-                          <input
-                            id="coAge"
-                            type="number"
-                            min={21}
-                            max={60}
-                            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                            value={income.coApplicantAge}
-                            onChange={(event) => {
-                              markLeadDirty();
-                              setIncome((prev) => ({ ...prev, coApplicantAge: Number(event.target.value) }));
-                            }}
-                          />
-                          <p className="mt-1 text-xs text-slate-500">Young co-applicants (≤ 35 years) unlock a FOIR boost.</p>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                )}
+                </div>
 
-                {step === 2 && (
-                  <div className="grid gap-8 sm:grid-cols-2">
+                <div className={`${cardClass} p-6 space-y-4`}>
+                  <label className="flex items-center gap-3 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={hasCoApplicant}
+                      onChange={(event) => {
+                        clearMessages();
+                        setHasCoApplicant(event.target.checked);
+                      }}
+                      className={checkboxClass}
+                    />
+                    Include a co-applicant (optional)
+                  </label>
+
+                  {hasCoApplicant && (
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <div>
+                        <label className={labelClass} htmlFor="coIncome">
+                          Co-applicant income (₹)
+                        </label>
+                        <input
+                          id="coIncome"
+                          type="number"
+                          min={0}
+                          className={inputBaseClass}
+                          value={coApplicantIncome}
+                          onChange={(event) => {
+                            clearMessages();
+                            setCoApplicantIncome(Math.max(0, Number(event.target.value)));
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass} htmlFor="coAge">
+                          Co-applicant age
+                        </label>
+                        <input
+                          id="coAge"
+                          type="number"
+                          min={21}
+                          max={60}
+                          className={inputBaseClass}
+                          value={coApplicantAge}
+                          onChange={(event) => {
+                            clearMessages();
+                            setCoApplicantAge(Math.max(21, Math.min(60, Number(event.target.value))));
+                          }}
+                        />
+                        <p className={helperTextClass}>≤ 35 years unlocks a FOIR bonus.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className={`${cardClass} p-6 space-y-6`}>
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Loan assumptions</h3>
+                    <p className="text-sm text-slate-400">
+                      Adjust the knobs if you want to test different tenures, interest rates or down payment plans.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
                     <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="tenure">Desired tenure (years)</label>
+                      <label className={labelClass} htmlFor="tenure">
+                        Tenure ({tenureYears} years)
+                      </label>
                       <input
                         id="tenure"
                         type="range"
                         min={tenureBounds.min}
                         max={tenureBounds.max}
                         step={1}
-                        value={loan.tenureYears}
+                        value={tenureYears}
                         onChange={(event) => {
-                          markLeadDirty();
-                          setLoan((prev) => ({ ...prev, tenureYears: clampTenure(Number(event.target.value)) }));
+                          clearMessages();
+                          setTenureYears(clampTenure(Number(event.target.value)));
                         }}
-                        className="mt-2 w-full"
+                        className="mt-2 w-full accent-[#5d8bff]"
                       />
                       <div className="mt-2 flex justify-between text-xs uppercase tracking-wide text-slate-500">
                         <span>{tenureBounds.min} yrs</span>
-                        <span className="text-sm font-semibold text-blue-600">{loan.tenureYears} yrs</span>
                         <span>{tenureBounds.max} yrs</span>
                       </div>
                     </div>
+
                     <div>
-                      <label className="text-sm font-medium text-slate-700" htmlFor="downPayment">Down payment</label>
+                      <label className={labelClass} htmlFor="downPayment">
+                        Down payment ({Math.round(downPaymentPercent * 100)}%)
+                      </label>
                       <input
                         id="downPayment"
                         type="range"
                         min={downPaymentBounds.min}
                         max={downPaymentBounds.max}
                         step={0.05}
-                        value={loan.downPaymentPercent}
+                        value={downPaymentPercent}
                         onChange={(event) => {
-                          markLeadDirty();
-                          setLoan((prev) => ({ ...prev, downPaymentPercent: clampDownPayment(Number(event.target.value)) }));
+                          clearMessages();
+                          setDownPaymentPercent(clampDownPayment(Number(event.target.value)));
                         }}
-                        className="mt-2 w-full"
+                        className="mt-2 w-full accent-[#5d8bff]"
                       />
                       <div className="mt-2 flex justify-between text-xs uppercase tracking-wide text-slate-500">
                         <span>20%</span>
-                        <span className="text-sm font-semibold text-blue-600">{Math.round(loan.downPaymentPercent * 100)}%</span>
                         <span>50%</span>
                       </div>
                     </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-sm font-medium text-slate-700" htmlFor="interestRate">Expected interest rate (p.a)</label>
+
+                    <div>
+                      <label className={labelClass} htmlFor="interestRate">
+                        Expected interest rate (p.a)
+                      </label>
                       <div className="mt-2 flex items-center gap-3">
                         <input
                           id="interestRate"
@@ -725,215 +433,100 @@ export default function Home() {
                           min={5}
                           max={15}
                           step={0.1}
-                          className="w-28 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                          value={loan.interestRate}
+                          className="w-28 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-300/40"
+                          value={interestRate}
                           onChange={(event) => {
-                            markLeadDirty();
-                            setLoan((prev) => ({ ...prev, interestRate: Number(event.target.value) }));
+                            clearMessages();
+                            setInterestRate(Number(event.target.value));
                           }}
                         />
-                        <p className="text-sm text-slate-500">Most banks currently quote 8.4% - 9.1%.</p>
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
-                      <p className="font-semibold">FOIR primer</p>
-                      <p className="mt-1">Fixed Obligation to Income Ratio determines the portion of surplus income that can be used for EMIs. Harihara aligns with partner banks for accurate pre-qualification.</p>
-                    </div>
-                  </div>
-                )}
-
-                {step === 3 && (
-                  <div className="space-y-8">
-                    {(leadSaving || leadSyncError) && (
-                      <div className={`rounded-xl border p-4 text-sm ${leadSyncError ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                        {leadSyncError ?? "Syncing your affordability snapshot with the Harihara CRM..."}
-                      </div>
-                    )}
-
-                    <div className="grid gap-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 sm:grid-cols-2">
-                      <div>
-                        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Affordability summary</h2>
-                        <div className="mt-4 space-y-3 text-sm">
-                          <p className="flex justify-between">
-                            <span>Total monthly income</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.totalIncome)}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Eligible FOIR</span>
-                            <span className="font-semibold text-slate-900">{(summary.foirApplied * 100).toFixed(0)}%</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Max EMI capacity</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.maxEligibleEmi)}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Loan eligibility (@ {loan.interestRate.toFixed(2)}%)</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.eligibleLoanAmount)}</span>
-                          </p>
-                          <p className="flex justify-between text-base font-semibold text-blue-700">
-                            <span>Target purchase budget</span>
-                            <span>{formatCurrency(summary.affordablePrice)}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span>Indicative down payment</span>
-                            <span className="font-semibold text-slate-900">{formatCurrency(summary.downPaymentAmount)}</span>
-                          </p>
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-white/60 bg-white p-4 shadow-sm">
-                        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">EMI scenarios</h3>
-                        <div className="mt-3 max-h-64 overflow-y-auto">
-                          <table className="min-w-full text-left text-xs text-slate-600">
-                            <thead className="sticky top-0 bg-white text-slate-500">
-                              <tr>
-                                <th className="px-2 py-1">Tenure</th>
-                                <th className="px-2 py-1">Rate</th>
-                                <th className="px-2 py-1">Monthly EMI</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {emiRows.map((row) => (
-                                <tr key={`${row.tenureYears}-${row.rate}`} className="odd:bg-slate-50">
-                                  <td className="px-2 py-1 font-medium text-slate-800">{row.tenureYears} yrs</td>
-                                  <td className="px-2 py-1">{row.rate.toFixed(2)}%</td>
-                                  <td className="px-2 py-1 font-semibold text-slate-900">{formatCurrency(row.emi)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <p className="mt-3 text-xs text-slate-500">Fine-tune rate and tenure in Step 3 to re-run the scenarios.</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-semibold text-slate-900">Recommended properties</h2>
-                        <span className="text-sm text-slate-500">{propertyMatches.length} matches</span>
-                      </div>
-                      <p className="mt-1 text-sm text-slate-600">Projects within the affordability envelope based on current assumptions. Save or request a virtual walkthrough instantly.</p>
-
-                      <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                        {propertyMatches.map(({ property, fitLabel, ctaMessage }) => {
-                          const badgeClass =
-                            fitLabel === "Fits budget"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : fitLabel === "Stretch"
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-slate-200 text-slate-700";
-                          const isSpotlight = spotlightProperty?.property.id === property.id;
-                          return (
-                            <article
-                              key={property.id}
-                              className={`flex h-full flex-col rounded-2xl border bg-white shadow-sm transition ${isSpotlight ? "border-blue-400 shadow-lg shadow-blue-100" : "border-slate-200"}`}
-                            >
-                              <div className="h-32 w-full overflow-hidden rounded-t-2xl bg-gradient-to-tr from-blue-200 to-blue-50" aria-hidden />
-                              <div className="flex flex-1 flex-col gap-3 p-4 text-sm text-slate-600">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <h3 className="text-base font-semibold text-slate-900">{property.name}</h3>
-                                    <p>{property.location}</p>
-                                  </div>
-                                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
-                                    {fitLabel}
-                                  </span>
-                                </div>
-                                <p className="font-semibold text-slate-900">{formatCurrency(property.price)}</p>
-                                <p>{property.configuration} • {property.carpetArea}</p>
-                                <p className="text-xs uppercase tracking-wide text-slate-400">Key highlights</p>
-                                <ul className="space-y-1 text-xs">
-                                  {property.highlights.slice(0, 3).map((highlight: string) => (
-                                    <li key={highlight}>• {highlight}</li>
-                                  ))}
-                                </ul>
-                                <div className="mt-auto flex flex-wrap gap-2 text-xs">
-                                  <Link
-                                    href={property.detailsUrl}
-                                    target="_blank"
-                                    className="inline-flex items-center rounded-full border border-blue-200 px-3 py-1 font-medium text-blue-700 hover:bg-blue-50"
-                                  >
-                                    View details
-                                  </Link>
-                                  <a
-                                    href={`https://wa.me/${property.whatsappNumber}?text=${encodeURIComponent(ctaMessage)}`}
-                                    target="_blank"
-                                    className="inline-flex items-center rounded-full border border-emerald-200 px-3 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
-                                  >
-                                    WhatsApp RM
-                                  </a>
-                                </div>
-                              </div>
-                            </article>
-                          );
-                        })}
+                        <p className="text-sm text-slate-400">Most banks quote ~8.4% to 9.1% today.</p>
                       </div>
                     </div>
                   </div>
-                )}
-              </motion.div>
-            </AnimatePresence>
-
-            <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-slate-500">
-                Step {step + 1} of {stepLabels.length}
+                </div>
               </div>
-              <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:justify-end">
-                {step > 0 && (
+
+              <div className="space-y-6">
+                <div className={`${cardClass} border-white/20 bg-gradient-to-br from-[#151925] via-[#151223] to-[#07080d] p-6 shadow-lg shadow-[#5d8bff]/10`}>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Eligibility at a glance</h2>
+                  <div className="mt-5 grid gap-6">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Maximum loan eligibility</p>
+                      <p className="mt-2 text-2xl font-semibold text-sky-200">{formatCurrency(summary.eligibleLoanAmount)}</p>
+                      <p className={helperTextClass}>Assuming {tenureYears}-year tenure at {interestRate.toFixed(1)}%.</p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">Target property budget</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-100">{formatCurrency(summary.affordablePrice)}</p>
+                        <p className={helperTextClass}>Includes down payment of {formatCurrency(summary.downPaymentAmount)}.</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">Indicative EMI capacity</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-100">{formatCurrency(summary.maxEligibleEmi)}</p>
+                        <p className={helperTextClass}>FOIR applied: {(summary.foirApplied * 100).toFixed(0)}%.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`${cardClass} p-6`}>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">EMI scenarios by tenure</h3>
+                  <div className="mt-3 max-h-72 overflow-y-auto">
+                    <table className="min-w-full text-left text-xs text-slate-300">
+                      <thead className="sticky top-0 bg-black/50 text-slate-400 backdrop-blur">
+                        <tr>
+                          <th className="px-2 py-1">Tenure</th>
+                          <th className="px-2 py-1">Rate</th>
+                          <th className="px-2 py-1">Monthly EMI</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emiRows.map((row) => (
+                          <tr key={`${row.tenureYears}-${row.rate}`} className="odd:bg-white/5">
+                            <td className="px-2 py-1 font-medium text-slate-100">{row.tenureYears} yrs</td>
+                            <td className="px-2 py-1">{row.rate.toFixed(2)}%</td>
+                            <td className="px-2 py-1 font-semibold text-slate-100">{formatCurrency(row.emi)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className={`${helperTextClass} mt-3`}>
+                    Tweak the tenure slider to instantly refresh the table with new EMI benchmarks.
+                  </p>
+                </div>
+
+                <div className={`${cardClass} p-6`}>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Analysis</h3>
+                  <ul className="mt-4 space-y-3 text-sm text-slate-200">
+                    {analysisBullets.map((point) => (
+                      <li key={point} className="flex gap-3">
+                        <span className="mt-1 inline-flex h-2 w-2 flex-none rounded-full bg-sky-400" aria-hidden />
+                        <span>{point}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="flex justify-end">
                   <button
                     type="button"
-                    onClick={step === 3 ? handleExit : handleBack}
-                    className="rounded-full border border-slate-200 px-6 py-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                    onClick={handleExit}
+                    disabled={isSubmitting}
+                    className={`rounded-full border border-white/20 bg-white/5 px-10 py-3 text-sm font-semibold text-slate-200 shadow-sm transition ${
+                      isSubmitting ? "cursor-not-allowed opacity-60" : "hover:bg-white/10"
+                    }`}
                   >
-                    {step === 3 ? "Exit" : "Back"}
+                    {isSubmitting ? "Saving..." : "Save & Exit"}
                   </button>
-                )}
-                {step < 3 && (
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    className="rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                  >
-                    Continue
-                  </button>
-                )}
+                </div>
               </div>
             </div>
           </div>
         </section>
       </main>
-
-      <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 px-4 py-4 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">Ready for a guided walkthrough?</span> Share your snapshot with our WhatsApp concierge.
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <a
-              href={getWhatsappLink(lead, summary, spotlightProperty)}
-              target="_blank"
-              className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-            >
-              Send WhatsApp summary
-            </a>
-            <button
-              type="button"
-              onClick={() => {
-                if (step < 3) {
-                  const stepErrors = makeErrorList(step, lead, income, loan);
-                  setErrors(stepErrors);
-                  if (stepErrors.summary.length === 0) {
-                    setLeadSynced(false);
-                    setStep(3);
-                  }
-                }
-              }}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 px-6 py-3 text-sm font-medium text-slate-600 transition hover:border-slate-300"
-            >
-              Jump to results
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

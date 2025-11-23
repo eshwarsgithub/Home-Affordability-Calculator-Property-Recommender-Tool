@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { ID } from "node-appwrite";
 import { getDatabases, getDatabaseIds } from "@/lib/server/appwrite";
 
-const { databaseId, leadsCollectionId } = getDatabaseIds();
-
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
@@ -17,6 +15,8 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    const { databaseId, leadsCollectionId } = getDatabaseIds("leads");
 
     const documentData = {
       name: lead.name,
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Lead capture failed", error);
-    return NextResponse.json({ error: "Unexpected server error" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Unexpected server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
