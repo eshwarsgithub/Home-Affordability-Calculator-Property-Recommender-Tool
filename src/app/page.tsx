@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { calculateAffordability, buildEmiTable, formatCurrency } from "@/lib/calculations";
+import { calculateAffordability, buildEmiTable, formatCurrency, emiFromLoan } from "@/lib/calculations";
 import type { EmploymentType } from "@/lib/calculations";
 
 const tenureBounds = { min: 15, max: 30 };
@@ -15,12 +15,12 @@ const DEFAULT_TENURE = 20;
 const DEFAULT_DOWN_PAYMENT = 0.25;
 const DEFAULT_INTEREST = 8.5;
 
-const panelClass = "rounded-3xl border border-white/10 bg-neutral-950/80 backdrop-blur-xl shadow-[0_40px_80px_-40px_rgba(0,0,0,0.8)]";
-const cardClass = "rounded-2xl border border-white/10 bg-white/5";
-const labelClass = "text-sm font-medium text-slate-200";
-const helperTextClass = "text-xs text-slate-400";
-const inputBaseClass = "mt-1 w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 shadow-sm focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-300/40";
-const checkboxClass = "h-5 w-5 rounded border-white/25 bg-white/10 text-teal-300 focus:ring-teal-400";
+const panelClass = "rounded-3xl border border-gray-200 bg-white shadow-sm";
+const cardClass = "rounded-2xl border border-gray-200 bg-white";
+const labelClass = "text-sm font-medium text-gray-700";
+const helperTextClass = "text-xs text-gray-500";
+const inputBaseClass = "mt-1 w-full rounded-lg px-3 py-2 text-sm placeholder:opacity-60 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 input-surface";
+const checkboxClass = "h-5 w-5 rounded border input-surface text-sky-600 focus:ring-sky-500";
 
 const tenureVariants = (selected: number) => {
   const variants = new Set<number>([selected]);
@@ -178,16 +178,16 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-black/95">
+    <div className="min-h-screen">
       <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-12 px-4 pb-32 pt-12 sm:px-8 lg:px-12">
         <header className="flex flex-col gap-4">
-          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-slate-300 backdrop-blur">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-gray-200 bg-surface px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-gray-700">
             Harihara Constructions
           </span>
-          <h1 className="bg-gradient-to-r from-[#5d8bff] via-[#7b5bff] to-[#ff44c0] bg-clip-text text-3xl font-bold text-transparent sm:text-5xl">
+          <h1 className="text-3xl font-bold text-black sm:text-5xl">
             Instant Affordability Snapshot
           </h1>
-          <p className="max-w-3xl text-base text-slate-300">
+          <p className="max-w-3xl text-base text-gray-600">
             Enter your monthly gross salary and optional adjustments. We will estimate your maximum home loan eligibility and show EMI scenarios across popular tenures.
           </p>
         </header>
@@ -197,8 +197,8 @@ export default function Home() {
             <div className="grid gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
               <div className="space-y-6">
                 <div className="space-y-3">
-                  <h2 className="text-lg font-semibold text-slate-100">Tell us about your income</h2>
-                  <p className="text-sm text-slate-400">
+                  <h2 className="text-lg font-semibold text-gray-800">Tell us about your income</h2>
+                  <p className="text-sm text-gray-600">
                     The more accurate the salary and existing commitments, the sharper the eligibility calculation. Start with your gross monthly salary and tweak the rest only if needed.
                   </p>
                 </div>
@@ -221,7 +221,7 @@ export default function Home() {
                 <div className={`${cardClass} p-6`}>
                   <div className="grid gap-5 sm:grid-cols-3">
                     <div className="sm:col-span-3">
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Contact details</h3>
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600">Contact details</h3>
                     </div>
                     <div>
                       <label className={labelClass} htmlFor="fullName">
@@ -314,7 +314,7 @@ export default function Home() {
                 </div>
 
                 <div className={`${cardClass} p-6 space-y-4`}>
-                  <label className="flex items-center gap-3 text-sm text-slate-300">
+                  <label className="flex items-center gap-3 text-sm text-gray-700">
                     <input
                       type="checkbox"
                       checked={hasCoApplicant}
@@ -433,14 +433,14 @@ export default function Home() {
                           min={5}
                           max={15}
                           step={0.1}
-                          className="w-28 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-300/40"
+                          className="w-28 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                           value={interestRate}
                           onChange={(event) => {
                             clearMessages();
                             setInterestRate(Number(event.target.value));
                           }}
                         />
-                        <p className="text-sm text-slate-400">Most banks quote ~8.4% to 9.1% today.</p>
+                        <p className="text-sm text-gray-600">Most banks quote ~8.4% to 9.1% today.</p>
                       </div>
                     </div>
                   </div>
@@ -448,66 +448,92 @@ export default function Home() {
               </div>
 
               <div className="space-y-6">
-                <div className={`${cardClass} border-white/20 bg-gradient-to-br from-[#151925] via-[#151223] to-[#07080d] p-6 shadow-lg shadow-[#5d8bff]/10`}>
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Eligibility at a glance</h2>
+                <div className={`${cardClass} p-6 shadow-md`}>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">Eligibility at a glance</h2>
                   <div className="mt-5 grid gap-6">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Maximum loan eligibility</p>
-                      <p className="mt-2 text-2xl font-semibold text-sky-200">{formatCurrency(summary.eligibleLoanAmount)}</p>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Maximum loan eligibility</p>
+                      <p className="mt-2 text-2xl font-semibold text-sky-700">{formatCurrency(summary.eligibleLoanAmount)}</p>
                       <p className={helperTextClass}>Assuming {tenureYears}-year tenure at {interestRate.toFixed(1)}%.</p>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Target property budget</p>
-                        <p className="mt-2 text-lg font-semibold text-slate-100">{formatCurrency(summary.affordablePrice)}</p>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Target property budget</p>
+                        <p className="mt-2 text-lg font-semibold text-gray-900">{formatCurrency(summary.affordablePrice)}</p>
                         <p className={helperTextClass}>Includes down payment of {formatCurrency(summary.downPaymentAmount)}.</p>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Indicative EMI capacity</p>
-                        <p className="mt-2 text-lg font-semibold text-slate-100">{formatCurrency(summary.maxEligibleEmi)}</p>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Indicative EMI capacity</p>
+                        <p className="mt-2 text-lg font-semibold text-gray-900">{formatCurrency(summary.maxEligibleEmi)}</p>
                         <p className={helperTextClass}>FOIR applied: {(summary.foirApplied * 100).toFixed(0)}%.</p>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className={`${cardClass} p-6`}>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">EMI scenarios by tenure</h3>
-                  <div className="mt-3 max-h-72 overflow-y-auto">
-                    <table className="min-w-full text-left text-xs text-slate-300">
-                      <thead className="sticky top-0 bg-black/50 text-slate-400 backdrop-blur">
-                        <tr>
-                          <th className="px-2 py-1">Tenure</th>
-                          <th className="px-2 py-1">Rate</th>
-                          <th className="px-2 py-1">Monthly EMI</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {emiRows.map((row) => (
-                          <tr key={`${row.tenureYears}-${row.rate}`} className="odd:bg-white/5">
-                            <td className="px-2 py-1 font-medium text-slate-100">{row.tenureYears} yrs</td>
-                            <td className="px-2 py-1">{row.rate.toFixed(2)}%</td>
-                            <td className="px-2 py-1 font-semibold text-slate-100">{formatCurrency(row.emi)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <div className={`${cardClass} p-6`}> 
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700">EMI (selected tenure)</h3>
+                  <div className="mt-4 grid grid-cols-1 gap-3">
+                    <div className="rounded-lg border border-gray-100 bg-surface p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs text-gray-500 uppercase">Tenure</div>
+                          <div className="text-lg font-semibold text-gray-900">{tenureYears} years</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-gray-500 uppercase">Down payment</div>
+                          <div className="text-lg font-semibold text-gray-900">{Math.round(downPaymentPercent * 100)}%</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 border-t pt-3">
+                        <div className="text-xs text-gray-500 uppercase">Indicative EMI at {interestRate.toFixed(2)}%</div>
+                        <div className="mt-1 text-2xl font-bold text-gray-900">{formatCurrency(emiFromLoan(summary.eligibleLoanAmount, interestRate, tenureYears))}</div>
+                        <p className={`${helperTextClass} mt-2`}>This estimate assumes you borrow {formatCurrency(summary.eligibleLoanAmount)} over {tenureYears} years.</p>
+                      </div>
+                    </div>
                   </div>
-                  <p className={`${helperTextClass} mt-3`}>
-                    Tweak the tenure slider to instantly refresh the table with new EMI benchmarks.
-                  </p>
                 </div>
 
                 <div className={`${cardClass} p-6`}>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Analysis</h3>
-                  <ul className="mt-4 space-y-3 text-sm text-slate-200">
-                    {analysisBullets.map((point) => (
-                      <li key={point} className="flex gap-3">
-                        <span className="mt-1 inline-flex h-2 w-2 flex-none rounded-full bg-sky-400" aria-hidden />
-                        <span>{point}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700">Analysis</h3>
+                  <div className="mt-4 grid gap-4">
+                    {/* Simple visual metrics */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm text-gray-600">Eligible loan amount</div>
+                        <div className="text-sm font-semibold text-gray-900">{formatCurrency(summary.eligibleLoanAmount)}</div>
+                      </div>
+                      <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-3 bg-sky-600"
+                          style={{ width: `${Math.min(100, (summary.eligibleLoanAmount / Math.max(1, summary.affordablePrice)) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm text-gray-600">Indicative EMI capacity</div>
+                        <div className="text-sm font-semibold text-gray-900">{formatCurrency(summary.maxEligibleEmi)}</div>
+                      </div>
+                      <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-3 bg-emerald-500"
+                          style={{ width: `${Math.min(100, (summary.maxEligibleEmi / Math.max(1, summary.totalIncome)) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm text-gray-600">Down payment</div>
+                        <div className="text-sm font-semibold text-gray-900">{Math.round(downPaymentPercent * 100)}%</div>
+                      </div>
+                      <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-3 bg-indigo-500" style={{ width: `${Math.round(downPaymentPercent * 100)}%` }} />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex justify-end">
@@ -515,9 +541,7 @@ export default function Home() {
                     type="button"
                     onClick={handleExit}
                     disabled={isSubmitting}
-                    className={`rounded-full border border-white/20 bg-white/5 px-10 py-3 text-sm font-semibold text-slate-200 shadow-sm transition ${
-                      isSubmitting ? "cursor-not-allowed opacity-60" : "hover:bg-white/10"
-                    }`}
+                    className={`rounded-full border border-gray-300 bg-white px-10 py-3 text-sm font-semibold text-gray-800 shadow-sm transition ${isSubmitting ? "cursor-not-allowed opacity-60" : "hover:bg-gray-100"}`}
                   >
                     {isSubmitting ? "Saving..." : "Save & Exit"}
                   </button>
