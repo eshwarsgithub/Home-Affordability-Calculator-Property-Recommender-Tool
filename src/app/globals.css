@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f7f9;
+  --foreground: #0f1722;
+  --muted: #6b7280; /* gray-500 */
+  --card-bg: #ffffff;
+  --border: rgba(15, 23, 34, 0.08);
+  --accent: linear-gradient(135deg, #5d8bff 0%, #7b5bff 45%, #ff44c0 100%);
+}
+
+html, body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+}
+
+/* Form elements */
+input,
+select,
+textarea {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(15, 23, 34, 0.35);
+}
+
+/* Utility class for inputs and cards */
+.input-surface {
+  background: var(--card-bg) !important;
+  color: var(--foreground) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.card-surface {
+  background: var(--card-bg) !important;
+  color: var(--foreground) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* Utility tweaks so Tailwind cards and bg classes blend with our variables */
+.bg-surface {
+  background-color: var(--card-bg) !important;
+}
